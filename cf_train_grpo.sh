@@ -1,4 +1,7 @@
-export CUDA_VISIBLE_DEVICES=0,1
+module reset
+module load nvidia/25.5 cuda/12.8 gcc/15
+
+export CUDA_VISIBLE_DEVICES=0
 export DATA_DIR='./data/amazon_data'
 
 WAND_PROJECT='Search-R1-CF'
@@ -15,9 +18,10 @@ export TEST_DATA_DIR='./data/amazon_data'
 # export BASE_MODEL='meta-llama/Llama-3.1-8B-Instruct'
 # export EXPERIMENT_NAME=nq-search-r1-grpo-llama3.1-8b-it-em
 
-# export BASE_MODEL='Llama/Llama-3.2-1B-Instruct'
-export BASE_MODEL='Qwen/Qwen2.5-1.5B-Instruct'
-export EXPERIMENT_NAME=amazon-search-r1-grpo-qwen2.5-3b-em
+# export BASE_MODEL='Qwen/Qwen2.5-1.5B-Instruct'
+# export BASE_MODEL='meta-llama/Llama-3.2-1B-Instruct'
+export BASE_MODEL='meta-llama/Llama-3.2-1B-Instruct'
+export EXPERIMENT_NAME=amazon-search-r1-grpo-llama-3.2-1b
 # export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
 # export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-it-em
 # export BASE_MODEL='Qwen/Qwen2.5-7B'
@@ -67,7 +71,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     trainer.logger=['wandb'] \
     trainer.val_only=false \
     trainer.val_before_train=true \
-    trainer.n_gpus_per_node=2 \
+    trainer.n_gpus_per_node=1 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=200 \

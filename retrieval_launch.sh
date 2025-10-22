@@ -1,3 +1,4 @@
+module load gcc/15 cuda/12.6 nccl/12.4 nvidia_math
 
 file_path='data/amazon_data'
 index_file=$file_path/e5_Flat.index
