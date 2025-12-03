@@ -1,8 +1,15 @@
-module reset
-module load nvidia/25.5 cuda/12.8 gcc/15
+# Run this script directly on the host, it will exec into the container
+# module reset
+# module load nvidia/25.5 cuda/12.9 gcc/15
+# module load tacc-apptainer
 
 export CUDA_VISIBLE_DEVICES=0
 export DATA_DIR='./data/amazon_data'
+
+# Fix for glibc TLS exhaustion error (dl-tls.c: _dl_add_to_slotinfo assertion)
+# These need to be set inside the container
+export GLIBC_TUNABLES=glibc.rtld.optional_static_tls=2048
+export TOKENIZERS_PARALLELISM=false
 
 WAND_PROJECT='Search-R1-CF'
 
@@ -44,10 +51,10 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     --config-name='search_multiturn_grpo' \
     data.train_files=$TRAIN_DATA_DIR/train.parquet \
     data.val_files=$TEST_DATA_DIR/test.parquet \
-    data.train_batch_size=256 \
-    data.val_batch_size=256 \
-    data.max_prompt_length=4096 \
-    data.max_response_length=800 \
+    data.train_batch_size=1 \
+    data.val_batch_size=1 \
+    data.max_prompt_length=32 \
+    data.max_response_length=32 \
     algorithm.adv_estimator=grpo \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.model.enable_gradient_checkpointing=true \
@@ -55,15 +62,15 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.285 \
     actor_rollout_ref.actor.use_kl_loss=true \
-    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=1 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.fsdp_config.param_offload=true \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=true \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size=128 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size=1 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size=128 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \

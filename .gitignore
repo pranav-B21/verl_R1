@@ -129,3 +129,12 @@ outputs
 
 base_model
 data
+*.sif
+
+
+rebuild_container.sh
+run_in_container.sh
+singularity_fix.sh
+pytorch_25.08-py3-tls-fixed.def
+
+
