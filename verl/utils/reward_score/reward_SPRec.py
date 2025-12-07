@@ -25,7 +25,7 @@ def extract_solution(solution_str):
     matches = list(match)
     
     # If there are 0 or exactly 1 matches, return None
-    if len(matches) <= 1:
+    if len(matches) < 1:
         return None
     
     # If there are 2 or more matches, return the last one
@@ -67,10 +67,13 @@ def similarity_match(solution_str, ground_truth):
         model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
         embeddings = torch.load(f"./data/amazon_data/CDs_and_Vinyl/embeddings.pt")
         name2id = read_json(f"./data/amazon_data/CDs_and_Vinyl/name2id.json")
-        embeddings = torch.tensor(embeddings).cuda()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        embeddings = torch.tensor(embeddings, device=device)
         
-        predict_embedding = torch.tensor(model.encode(text))
-        dist = torch.cdist(predict_embedding, embeddings, p=2)
+        predict_embedding = torch.tensor(model.encode(text), device=device)
+        if predict_embedding.ndim == 1:
+            predict_embedding = predict_embedding.unsqueeze(0)
+        dist = torch.cdist(predict_embedding, embeddings, p=2).squeeze(0)
         rank = dist.argsort()
 
         target_name = ground_truth["target"].strip().strip('"')
@@ -79,17 +82,24 @@ def similarity_match(solution_str, ground_truth):
         else:
             target_id = 0
 
-        rankId = rank[target_id]
+        rank_pos = (rank == target_id).nonzero(as_tuple=False)
+        rankId = rank_pos.item() + 1 if rank_pos.numel() > 0 else len(rank) + 1
         if rankId == 1:
             match = 1.0
         elif rankId <= 5:
             match = 0.8
         elif rankId <= 10:
             match = 0.5
+        elif rankId <= 100:
+            match = 0.1
+        elif rankId <= 500:
+            match = 0.05
         else:
             match = 0.0
-        if open_count > 10 or close_count > 10:  # prevent output a lot of </answer>
+        if open_count > 1 or close_count > 1:  # prevent output a lot of </answer>
             match = match / 4
+            if match  == 0:
+                match = -0.5
     else:
         match = 0.0
     return match

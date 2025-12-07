@@ -222,6 +222,17 @@ def _post_process_outputs(processing_class, output):
     return batched_output_token_ids, batched_logprobs
 
 
+def _uses_llama_chat_template(processing_class) -> bool:
+    """Return True if the tokenizer/processor exposes a Llama-style chat template."""
+    template = getattr(processing_class, "chat_template", None)
+    if template is None:
+        tokenizer = getattr(processing_class, "tokenizer", None)
+        template = getattr(tokenizer, "chat_template", None) if tokenizer is not None else None
+    if template is None:
+        return False
+    return "llama" in template.lower()
+
+
 def get_tool_call_parser_type(
     processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
 ) -> str:
@@ -294,6 +305,9 @@ class SGLangRollout(BaseRollout):
         self._init_sampling_params(**kwargs)
 
         self.processing_class = processing_class
+        self._limit_tool_calls_to_one = _uses_llama_chat_template(processing_class)
+        if self._limit_tool_calls_to_one:
+            logger.info("Detected Llama chat template; limiting assistant tool calls to one per turn.")
         try:
             # This is when processing_class is a tokenizer
             self.pad_token_id = self.processing_class.pad_token_id
@@ -928,6 +942,22 @@ class SGLangRollout(BaseRollout):
                         except AttributeError:
                             normed_content = content
                             tool_calls = []
+                        except TypeError as exc:
+                            logger.warning(
+                                "Failed to parse tool call due to TypeError (%s). "
+                                "Content will be treated as plain text. Sample: %s",
+                                exc,
+                                content[:2000],
+                            )
+                            normed_content = content
+                            tool_calls = []
+                        if self._limit_tool_calls_to_one and len(tool_calls) > 1:
+                            logger.warning(
+                                "Model produced %d tool calls in one message; only the first will be kept "
+                                "to satisfy the chat template constraint.",
+                                len(tool_calls),
+                            )
+                            tool_calls = tool_calls[:1]
                         parsed_tool_calls = []
                         for tool_call in tool_calls:
                             function, has_decode_error = OpenAIFunctionCallSchema.from_openai_function_parsed_schema(

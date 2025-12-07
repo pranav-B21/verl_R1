@@ -102,9 +102,7 @@ def default_compute_score(
 
         res = search_r1_like_qa_em.compute_score(solution_str, ground_truth)
     
-    elif data_source in [
-        "amazon"
-    ]:
+    elif "amazon" in data_source:
         from . import reward_SPRec
 
         res = reward_SPRec.compute_score(solution_str, ground_truth)

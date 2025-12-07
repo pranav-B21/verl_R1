@@ -19,6 +19,7 @@ from enum import Enum
 from typing import Any, Optional
 
 import torch
+from jinja2 import TemplateError
 from pydantic import BaseModel, ConfigDict, model_validator
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast, ProcessorMixin
 
@@ -55,7 +56,7 @@ class FinishReasonTypeEnum(str, Enum):
 
 class Message(BaseModel):
     role: str
-    content: str | dict[str, Any] | list[dict[str, Any]] | ToolResponse
+    content: Optional[str | dict[str, Any] | list[dict[str, Any]] | ToolResponse] = None
     tool_calls: Optional[list[OpenAIFunctionToolCall]] = None
 
 
@@ -222,6 +223,76 @@ class AsyncRolloutRequest(BaseModel):
         return values
 
     @staticmethod
+    def _sanitize_messages_for_chat_template(messages: list[dict]) -> list[dict]:
+        """
+        Recursively sanitize messages to ensure no None values that might break Jinja2 templates.
+        The Llama template calls len() on various fields which fails if they are None.
+        """
+        sanitized = []
+        for msg in messages:
+            msg_copy = msg.copy()
+            
+            # Fix None content - most common issue
+            if msg_copy.get("content") is None:
+                msg_copy["content"] = ""
+            
+            # Fix tool_calls - llama chat templates interpret an empty list as a (broken) tool call
+            tool_calls = msg_copy.get("tool_calls")
+            if tool_calls:
+                sanitized_tool_calls = []
+                for tc in tool_calls:
+                    if isinstance(tc, dict):
+                        tc_copy = tc.copy()
+                        # Fix function arguments if None
+                        if "function" in tc_copy and isinstance(tc_copy["function"], dict):
+                            if tc_copy["function"].get("arguments") is None:
+                                tc_copy["function"]["arguments"] = ""
+                            if tc_copy["function"].get("name") is None:
+                                tc_copy["function"]["name"] = ""
+                        sanitized_tool_calls.append(tc_copy)
+                    else:
+                        sanitized_tool_calls.append(tc)
+                msg_copy["tool_calls"] = sanitized_tool_calls
+            else:
+                # Drop the field entirely so templates treat the message as a plain assistant turn
+                msg_copy.pop("tool_calls", None)
+            
+            # Fix tool_call_id if present and None
+            if "tool_call_id" in msg_copy and msg_copy["tool_call_id"] is None:
+                msg_copy["tool_call_id"] = ""
+            
+            # Fix name if present and None
+            if "name" in msg_copy and msg_copy["name"] is None:
+                msg_copy["name"] = ""
+            
+            sanitized.append(msg_copy)
+        
+        return sanitized
+
+    @staticmethod
+    def _requires_single_tool_call(processing_class) -> bool:
+        template = getattr(processing_class, "chat_template", None)
+        if template is None and hasattr(processing_class, "tokenizer"):
+            template = getattr(processing_class.tokenizer, "chat_template", None)
+        if template is None:
+            return False
+        if not isinstance(template, str):
+            return False
+        return "llama" in template.lower()
+
+    @staticmethod
+    def _truncate_tool_calls_for_template(messages: list[dict[str, Any]]) -> bool:
+        truncated = False
+        for msg in messages:
+            if msg.get("role") != "assistant":
+                continue
+            tool_calls = msg.get("tool_calls")
+            if isinstance(tool_calls, list) and len(tool_calls) > 1:
+                msg["tool_calls"] = tool_calls[:1]
+                truncated = True
+        return truncated
+
+    @staticmethod
     def _handle_apply_chat_template(
         processing_class: PreTrainedTokenizer | PreTrainedTokenizerFast | ProcessorMixin,
         messages: list[Message],
@@ -231,9 +302,55 @@ class AsyncRolloutRequest(BaseModel):
         tokenize: bool = False,
         return_dict: bool = False,
     ):
-        raw_prompt = processing_class.apply_chat_template(
-            messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=False
-        )
+        # Fix: Ensure all message content fields are non-None to avoid Jinja2 template errors
+        # Some chat templates (like Llama-3) call len() on content which fails if content is None
+        # Messages can be either Message objects or dicts (after model_dump())
+        processed_messages = []
+        for i, msg in enumerate(messages):
+            if isinstance(msg, dict):
+                # Message is already a dict (from model_dump())
+                msg_copy = msg.copy()
+            else:
+                # Message is a Pydantic model - convert to dict first
+                msg_copy = msg.model_dump() if hasattr(msg, 'model_dump') else dict(msg)
+            
+            processed_messages.append(msg_copy)
+        
+        # Sanitize all messages to remove None values
+        processed_messages = AsyncRolloutRequest._sanitize_messages_for_chat_template(processed_messages)
+        
+        requires_single_tool_call = AsyncRolloutRequest._requires_single_tool_call(processing_class)
+
+        def _render_chat():
+            return processing_class.apply_chat_template(
+                processed_messages, tools=tools, add_generation_prompt=add_generation_prompt, tokenize=False
+            )
+
+        try:
+            raw_prompt = _render_chat()
+        except TemplateError as e:
+            error_msg = str(e)
+            need_truncate = "single tool-calls" in error_msg.lower() or requires_single_tool_call
+            truncated = False
+            if need_truncate:
+                truncated = AsyncRolloutRequest._truncate_tool_calls_for_template(processed_messages)
+            if truncated:
+                logger.warning(
+                    "Chat template rejected multiple tool calls; truncating to keep only the first tool call per "
+                    "assistant turn."
+                )
+                raw_prompt = _render_chat()
+            else:
+                logger.error(f"TemplateError in apply_chat_template: {e}")
+                logger.error(f"Messages that caused the error: {processed_messages}")
+                logger.error(f"Tools: {tools}")
+                raise
+        except TypeError as e:
+            # If we still get the error, dump the messages for debugging
+            logger.error(f"TypeError in apply_chat_template: {e}")
+            logger.error(f"Messages that caused the error: {processed_messages}")
+            logger.error(f"Tools: {tools}")
+            raise
         if not tokenize:
             return raw_prompt
 
@@ -363,6 +480,23 @@ class AsyncRolloutRequest(BaseModel):
 
         if self.use_inference_chat_template:
             messages = [msg.model_dump() for msg in self.messages]
+            # CRITICAL FIX: Sanitize messages to avoid Jinja2 template errors with None values
+            for msg in messages:
+                if msg.get("content") is None:
+                    msg["content"] = ""
+                    print(f"[VERL FIX] Replaced None content in message with role: {msg.get('role')}")
+                if "tool_calls" in msg and msg["tool_calls"] is not None:
+                    for tc in msg["tool_calls"]:
+                        if isinstance(tc, dict) and "function" in tc and isinstance(tc["function"], dict):
+                            if tc["function"].get("arguments") is None:
+                                tc["function"]["arguments"] = ""
+                            if tc["function"].get("name") is None:
+                                tc["function"]["name"] = ""
+                if "tool_call_id" in msg and msg["tool_call_id"] is None:
+                    msg["tool_call_id"] = ""
+                if "name" in msg and msg["name"] is None:
+                    msg["name"] = ""
+            
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
             generation_prompt_ids = self._handle_apply_chat_template(
                 processing_class,
@@ -568,6 +702,29 @@ class AsyncRolloutRequest(BaseModel):
             diff_surrounding_chars = 10
 
             messages = [msg.model_dump() for msg in self.messages]
+            # CRITICAL FIX: Sanitize messages to avoid Jinja2 template errors with None values
+            # The Llama template line 71 calls len() on fields that may be None
+            for msg in messages:
+                # Fix content
+                if msg.get("content") is None:
+                    msg["content"] = ""
+                    print(f"[VERL FIX] Replaced None content in message with role: {msg.get('role')}")
+                
+                # Fix tool_calls
+                if "tool_calls" in msg and msg["tool_calls"] is not None:
+                    for tc in msg["tool_calls"]:
+                        if isinstance(tc, dict) and "function" in tc and isinstance(tc["function"], dict):
+                            if tc["function"].get("arguments") is None:
+                                tc["function"]["arguments"] = ""
+                            if tc["function"].get("name") is None:
+                                tc["function"]["name"] = ""
+                
+                # Fix other potential None fields
+                if "tool_call_id" in msg and msg["tool_call_id"] is None:
+                    msg["tool_call_id"] = ""
+                if "name" in msg and msg["name"] is None:
+                    msg["name"] = ""
+            
             tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
             full_prompt_info = self._handle_apply_chat_template(
                 processing_class,
