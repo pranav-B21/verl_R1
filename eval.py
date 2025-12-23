@@ -18,16 +18,19 @@ parse.add_argument("--output_dir",type=str, default="./", help="eval_result")
 parse.add_argument("--topk",type=str, default="./", help="topk")
 parse.add_argument("--gamma",type=float,default=0.0,help="gamma")
 parse.add_argument("--category",type=str,default="CDs_and_Vinyl",help="gamma")
+parse.add_argument("--dataset_dir",type=str,default="./data/amazon_data/CDs_and_Vinyl",help="Path to category resources")
+parse.add_argument("--encoder",type=str,default="sentence-transformers/paraphrase-MiniLM-L3-v2",help="SentenceTransformer identifier or path")
 args = parse.parse_args()
 def read_json(json_file:str) -> dict:
-    f = open(json_file, 'r')
-    return json.load(f)
+    with open(json_file, 'r') as f:
+        return json.load(f)
+dataset_dir = os.path.abspath(args.dataset_dir)
 category = args.category
-id2name = read_json(f"./eval/{category}/id2name.json")
-name2id = read_json(f"./eval/{category}/name2id.json")
-embeddings = torch.load(f"./eval/{category}/embeddings.pt")
-name2genre = read_json(f"./eval/{category}/name2genre.json")
-genre_dict = read_json(f"./eval/{category}/genre_dict.json")
+id2name = read_json(os.path.join(dataset_dir, "id2name.json"))
+name2id = read_json(os.path.join(dataset_dir, "name2id.json"))
+embeddings = torch.load(os.path.join(dataset_dir, "embeddings.pt"))
+name2genre = read_json(os.path.join(dataset_dir, "name2genre.json"))
+genre_dict = read_json(os.path.join(dataset_dir, "genre_dict.json"))
 def batch(list, batch_size=1):
     chunk_size = (len(list) - 1) // batch_size + 1
     for i in range(chunk_size):
@@ -37,11 +40,11 @@ def sum_of_first_i_keys(sorted_dic, i):
     keys = list(sorted_dic.values())[:i]
     return sum(keys)
 
-def gh(category:str,test_data):
+def gh(dataset_root:str,test_data):
     notin_count = 0
     in_count = 0
-    name2genre=read_json(f"./eval/{category}/name2genre.json")
-    genre_dict = read_json(f"./eval/{category}/genre_dict.json")
+    name2genre=read_json(os.path.join(dataset_root, "name2genre.json"))
+    genre_dict = read_json(os.path.join(dataset_root, "genre_dict.json"))
     for data in tqdm(test_data,desc="Processing category data......"):
         input = data['input']
         names = re.findall(r'"([^"]+)"', input)
@@ -71,7 +74,7 @@ f = open(result_json, 'r')
 test_data = json.load(f)
 total = 0
 # Identify your sentence-embedding model
-model = SentenceTransformer('/data/chenruijun/code/models/paraphrase-MiniLM-L3-v2')
+model = SentenceTransformer(args.encoder)
 
 from tqdm import tqdm
 embeddings = torch.tensor(embeddings).cuda()
@@ -179,7 +182,7 @@ for topk in topk_list:
     diversity.append(len(diversity_set))
 genre = args.category
 
-gh_genre = gh(category,test_data)
+gh_genre = gh(dataset_dir,test_data)
 #
 print(len(gh_genre))
 gp_genre = [genre_dict[x] for x in genre_dict]

@@ -33,7 +33,7 @@ CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
 # Evaluation specific overrides (customize as needed)
-CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/09585/shijunli4527/verl_checkpoints/$EXPERIMENT_NAME"}
+CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/09585/shijunli4527/verl/$EXPERIMENT_NAME"}
 CHECKPOINT_STEP=${CHECKPOINT_STEP:-latest} # Accepts "latest", a number, or "global_step_*"
 FORCE_MERGE=${FORCE_MERGE:-0}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-16}
@@ -153,12 +153,13 @@ json_path = os.environ["PRED_JSON"]
 table = pq.read_table(parquet_path)
 data = table.to_pydict()
 
-questions = data.get("question")
+prompts = data.get("prompt") or []
+extra_info = data.get("extra_info") or []
 responses = data.get("responses")
 reward_model = data.get("reward_model")
 
-if questions is None or responses is None or reward_model is None:
-    raise RuntimeError("Missing required columns (question/responses/reward_model) in parquet output.")
+if responses is None or reward_model is None:
+    raise RuntimeError("Missing required columns (responses/reward_model) in parquet output.")
 
 records = []
 for idx in range(len(responses)):
@@ -168,13 +169,25 @@ for idx in range(len(responses)):
     else:
         preds_list = list(preds)
 
+    # Prefer explicitly stored question, fall back to the last user message.
+    question = None
+    if idx < len(extra_info):
+        info = extra_info[idx] or {}
+        if isinstance(info, dict):
+            question = info.get("question")
+    if question is None and idx < len(prompts):
+        prompt_turns = prompts[idx] or []
+        if isinstance(prompt_turns, list) and prompt_turns:
+            question = prompt_turns[-1].get("content", "")
+    question = question or ""
+
     reward_info = reward_model[idx] or {}
     ground_truth = reward_info.get("ground_truth", {}) if isinstance(reward_info, dict) else {}
     target = ground_truth.get("target", "")
 
     records.append(
         {
-            "input": questions[idx],
+            "input": question,
             "output": target,
             "predict": preds_list,
         }

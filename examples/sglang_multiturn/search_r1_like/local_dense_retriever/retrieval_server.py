@@ -355,9 +355,14 @@ def retrieve_endpoint(request: QueryRequest):
         request.topk = config.retrieval_topk  # fallback to default
 
     # Perform batch retrieval
-    results, scores = retriever.batch_search(
-        query_list=request.queries, num=request.topk, return_score=request.return_scores
-    )
+    if request.return_scores:
+        results, scores = retriever.batch_search(
+            query_list=request.queries, num=request.topk, return_score=True
+        )
+    else:
+        results = retriever.batch_search(query_list=request.queries, num=request.topk, return_score=False)
+        # create dummy score structure to keep response handling simple
+        scores = [[None] * len(single_result) for single_result in results]
 
     # Format response
     resp = []
@@ -403,9 +408,9 @@ if __name__ == "__main__":
         faiss_gpu=args.faiss_gpu,
         retrieval_model_path=args.retriever_model,
         retrieval_pooling_method="mean",
-        retrieval_query_max_length=256,
+        retrieval_query_max_length=1024,
         retrieval_use_fp16=True,
-        retrieval_batch_size=512,
+        retrieval_batch_size=1024,
     )
 
     # 2) Instantiate a global retriever so it is loaded once and reused.

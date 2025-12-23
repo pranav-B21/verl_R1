@@ -23,7 +23,7 @@ export SSL_CERT_FILE=/work/09585/shijunli4527/vista/Software/cacert.pem
 # export BASE_MODEL='meta-llama/Llama-3.2-1B-Instruct'
 # export EXPERIMENT_NAME=amazon-search-r1-grpo-llama-3.2-1b-data-new-4
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-fix-retr
 # export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
 # export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-it-em
 # export BASE_MODEL='Qwen/Qwen2.5-7B'
@@ -73,10 +73,10 @@ singularity exec --nv \
         --config-name=search_multiturn_grpo \
         data.train_files=$TRAIN_DATA_DIR/train.parquet \
         data.val_files=$TEST_DATA_DIR/test.parquet \
-        data.train_batch_size=128 \
+        data.train_batch_size=108 \
         data.val_batch_size=64 \
         data.max_prompt_length=1024 \
-        data.max_response_length=2048 \
+        data.max_response_length=2560 \
         algorithm.adv_estimator=grpo \
         actor_rollout_ref.model.path=$BASE_MODEL \
         actor_rollout_ref.model.enable_gradient_checkpointing=true \
@@ -91,7 +91,7 @@ singularity exec --nv \
         actor_rollout_ref.rollout.log_prob_micro_batch_size=8 \
         actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
         actor_rollout_ref.rollout.name=sglang \
-        actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
+        actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
         actor_rollout_ref.ref.log_prob_micro_batch_size=8 \
         actor_rollout_ref.ref.fsdp_config.param_offload=True \
         actor_rollout_ref.actor.kl_loss_coef=0.001 \
@@ -107,7 +107,7 @@ singularity exec --nv \
         trainer.test_freq=60 \
         trainer.project_name=$WAND_PROJECT \
         trainer.experiment_name=$EXPERIMENT_NAME \
-        trainer.total_epochs=4 \
+        trainer.total_epochs=10 \
         trainer.default_local_dir=/scratch/09585/shijunli4527/verl/$EXPERIMENT_NAME \
         actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
     2>&1 | tee $EXPERIMENT_NAME.log

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -p gh -N 1 -n 1 -t 10:00:00 -o output_1.log
+#SBATCH -p gh -N 1 -n 1 -t 24:00:00 -o output_1.log
 
 source ~/.bashrc
 
