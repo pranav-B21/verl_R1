@@ -6,7 +6,7 @@
 export CUDA_VISIBLE_DEVICES=0
 export DATA_DIR='./data/amazon_data'
 
-export SSL_CERT_FILE=/work/09585/shijunli4527/vista/Software/cacert.pem
+export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/cacert.pem
 
 # Fix for glibc TLS exhaustion error (dl-tls.c: _dl_add_to_slotinfo assertion)
 # These need to be set inside the container

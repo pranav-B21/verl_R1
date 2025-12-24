@@ -1,7 +1,7 @@
 tools:
   - class_name: verl.tools.search_tool.SearchTool
     config:
-      retrieval_service_url: http://c622-082:8000/retrieve
+      retrieval_service_url: http://c611-132:8000/retrieve #need to change curl if running retriever separately in different nodes
       num_workers: 120
       rate_limit: 120
       timeout: 30
