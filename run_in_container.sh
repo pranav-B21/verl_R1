@@ -1,7 +1,29 @@
 #!/bin/bash
 
 # This script runs the training inside the Singularity container
-# Usage: bash run_in_container.sh
+# Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]
+
+CHECKPOINT_PATH=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --checkpoint|--checkpoint-path)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Error: --checkpoint requires a non-empty path argument." >&2
+        exit 2
+      fi
+      CHECKPOINT_PATH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
 
 cd /work/09585/shijunli4527/vista/Project/verl_R1
 
@@ -23,7 +45,7 @@ export SSL_CERT_FILE=/work/09585/shijunli4527/vista/Software/cacert.pem
 # export BASE_MODEL='meta-llama/Llama-3.2-1B-Instruct'
 # export EXPERIMENT_NAME=amazon-search-r1-grpo-llama-3.2-1b-data-new-4
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-fix-retr
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-mt4-4096
 # export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
 # export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-it-em
 # export BASE_MODEL='Qwen/Qwen2.5-7B'
@@ -59,6 +81,12 @@ PROJECT_DIR="/work/09585/shijunli4527/vista/Project/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
+extra_overrides=()
+if [[ -n "${CHECKPOINT_PATH}" ]]; then
+  extra_overrides+=(trainer.resume_mode=resume_path)
+  extra_overrides+=(trainer.resume_from_path="${CHECKPOINT_PATH}")
+fi
+
 # Run using singularity exec instead of shell to avoid nested environment issues
 singularity exec --nv \
     --bind /work:/work \
@@ -73,10 +101,10 @@ singularity exec --nv \
         --config-name=search_multiturn_grpo \
         data.train_files=$TRAIN_DATA_DIR/train.parquet \
         data.val_files=$TEST_DATA_DIR/test.parquet \
-        data.train_batch_size=108 \
-        data.val_batch_size=64 \
+        data.train_batch_size=40 \
+        data.val_batch_size=32 \
         data.max_prompt_length=1024 \
-        data.max_response_length=2560 \
+        data.max_response_length=4096 \
         algorithm.adv_estimator=grpo \
         actor_rollout_ref.model.path=$BASE_MODEL \
         actor_rollout_ref.model.enable_gradient_checkpointing=true \
@@ -84,7 +112,7 @@ singularity exec --nv \
         actor_rollout_ref.actor.optim.lr=1e-6 \
         actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.285 \
         actor_rollout_ref.actor.use_kl_loss=true \
-        actor_rollout_ref.actor.ppo_mini_batch_size=64 \
+        actor_rollout_ref.actor.ppo_mini_batch_size=32 \
         actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
         actor_rollout_ref.actor.fsdp_config.param_offload=true \
         actor_rollout_ref.actor.fsdp_config.optimizer_offload=true \
@@ -97,17 +125,18 @@ singularity exec --nv \
         actor_rollout_ref.actor.kl_loss_coef=0.001 \
         actor_rollout_ref.actor.kl_loss_type=low_var_kl \
         actor_rollout_ref.rollout.temperature=1 \
-        actor_rollout_ref.rollout.multi_turn.max_assistant_turns=2 \
+        actor_rollout_ref.rollout.multi_turn.max_assistant_turns=4 \
         trainer.logger=['wandb'] \
         trainer.val_only=false \
         trainer.val_before_train=true \
         trainer.n_gpus_per_node=1 \
         trainer.nnodes=1 \
-        trainer.save_freq=100 \
-        trainer.test_freq=60 \
+        trainer.save_freq=50 \
+        trainer.test_freq=50 \
         trainer.project_name=$WAND_PROJECT \
         trainer.experiment_name=$EXPERIMENT_NAME \
-        trainer.total_epochs=10 \
+        trainer.total_epochs=15 \
         trainer.default_local_dir=/scratch/09585/shijunli4527/verl/$EXPERIMENT_NAME \
         actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
+        "${extra_overrides[@]}" \
     2>&1 | tee $EXPERIMENT_NAME.log

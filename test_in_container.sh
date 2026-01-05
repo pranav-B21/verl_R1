@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+# set -euo pipefail
 
 # This script evaluates a trained checkpoint inside the Singularity container.
 # Usage: bash test_in_container.sh
@@ -20,8 +20,8 @@ export TEST_DATA_DIR=${TEST_DATA_DIR:-'./data/amazon_data'}
 export SSL_CERT_FILE=${SSL_CERT_FILE:-/work/09585/shijunli4527/vista/Software/cacert.pem}
 
 # Training config defaults (can be overridden before calling the script)
-export BASE_MODEL=${BASE_MODEL:-'meta-llama/Llama-3.2-1B-Instruct'}
-export EXPERIMENT_NAME=${EXPERIMENT_NAME:-amazon-search-r1-grpo-llama-3.2-1b}
+export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen3-1.7B'}
+export EXPERIMENT_NAME=${EXPERIMENT_NAME:-nq-search-r1-grpo-qwen3-1.7b-mt4-3072}
 export WAND_PROJECT=${WAND_PROJECT:-'Search-R1-CF'}
 
 export VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-XFORMERS}
@@ -34,10 +34,13 @@ TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
 # Evaluation specific overrides (customize as needed)
 CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/09585/shijunli4527/verl/$EXPERIMENT_NAME"}
-CHECKPOINT_STEP=${CHECKPOINT_STEP:-latest} # Accepts "latest", a number, or "global_step_*"
+CHECKPOINT_STEP=${CHECKPOINT_STEP:-global_step_1150} # Accepts "latest", a number, or "global_step_*"
 FORCE_MERGE=${FORCE_MERGE:-0}
-GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-16}
-EVAL_CATEGORY=${EVAL_CATEGORY:-'../data/amazon_data/CDs_and_Vinyl'}
+GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-32}
+EVAL_CATEGORY=${EVAL_CATEGORY:-'CDs_and_Vinyl'}
+# Optional explicit dataset resource dir (contains id2name.json, name2id.json, embeddings.pt, ...).
+# If unset, it is derived from EVAL_CATEGORY under $PROJECT_DIR/data/amazon_data/<category>.
+EVAL_DATASET_DIR=${EVAL_DATASET_DIR:-''}
 
 if [ ! -d "$CHECKPOINT_ROOT" ]; then
     echo "Checkpoint root not found: $CHECKPOINT_ROOT" >&2
@@ -99,6 +102,7 @@ singularity exec --nv \
     --env TOOL_CONFIG=$TOOL_CONFIG \
     --env TEST_PARQUET="$TEST_DATA_DIR/test.parquet" \
     --env EVAL_CATEGORY=$EVAL_CATEGORY \
+    --env EVAL_DATASET_DIR=$EVAL_DATASET_DIR \
     --env EXPERIMENT_NAME=$EXPERIMENT_NAME \
     --env PROJECT_DIR=$PROJECT_DIR \
     --pwd $PROJECT_DIR \
@@ -123,23 +127,26 @@ singularity exec --nv \
             trainer.n_gpus_per_node=1 \
             data.path="$TEST_PARQUET" \
             data.prompt_key=prompt \
+            +data.return_raw_chat=True \
             data.batch_size="$GEN_BATCH_SIZE" \
             data.n_samples=1 \
             data.output_path="$GEN_OUTPUT_PARQUET" \
             model.path="$MERGED_MODEL_DIR" \
             rollout.name=sglang \
             rollout.temperature=1.0 \
-            rollout.top_k=0 \
+            rollout.top_k=-1 \
             rollout.top_p=0.95 \
-            rollout.prompt_length=3072 \
-            rollout.response_length=2048 \
+            rollout.prompt_length=1024 \
+            rollout.response_length=3072 \
             rollout.tensor_model_parallel_size=1 \
-            rollout.gpu_memory_utilization=0.8 \
-            rollout.multi_turn.enable=True \
-            rollout.multi_turn.max_assistant_turns=2 \
-            rollout.multi_turn.format=qwen \
-            rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
-            rollout.multi_turn.use_inference_chat_template=True
+            +rollout.pipeline_model_parallel_size=1 \
+            rollout.gpu_memory_utilization=0.9 \
+            +rollout.multi_turn._target_=verl.workers.config.MultiTurnConfig \
+            +rollout.multi_turn.enable=True \
+            +rollout.multi_turn.max_assistant_turns=4 \
+            +rollout.multi_turn.format=qwen \
+            +rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
+            +rollout.multi_turn.use_inference_chat_template=True
 
         echo "[3/4] Converting parquet outputs to eval.json format..."
         python3 - <<'"'"'PY'"'"'
@@ -199,13 +206,43 @@ with open(json_path, "w", encoding="utf-8") as f:
 PY
 
         echo "[4/4] Running eval.py for top-1 and top-5 metrics..."
+        # eval.py expects:
+        # - --category: a category name (e.g. "CDs_and_Vinyl")
+        # - --dataset_dir: a directory containing id2name.json, name2id.json, embeddings.pt, ...
+        #
+        # Recommended usage:
+        #   EVAL_CATEGORY=CDs_and_Vinyl
+        #   EVAL_DATASET_DIR=$PROJECT_DIR/data/amazon_data/CDs_and_Vinyl   (optional)
+        #
+        # If EVAL_CATEGORY is a directory path, we treat it as dataset_dir and use its basename as category.
+        # If EVAL_CATEGORY is a plain category name, derive dataset_dir under $PROJECT_DIR/data/amazon_data/.
+        if [[ -n "${EVAL_DATASET_DIR:-}" ]]; then
+            _eval_dataset_dir="$EVAL_DATASET_DIR"
+            _eval_category_name="$(basename "$_eval_dataset_dir")"
+        elif [[ "$EVAL_CATEGORY" == /* ]]; then
+            _eval_dataset_dir="$EVAL_CATEGORY"
+            _eval_category_name="$(basename "$EVAL_CATEGORY")"
+        elif [[ "$EVAL_CATEGORY" == */* ]]; then
+            _eval_category_name="$(basename "$EVAL_CATEGORY")"
+            _candidate_dir="$PROJECT_DIR/$EVAL_CATEGORY"
+            if [[ -d "$_candidate_dir" ]]; then
+                _eval_dataset_dir="$_candidate_dir"
+            else
+                _eval_dataset_dir="$PROJECT_DIR/data/amazon_data/$_eval_category_name"
+            fi
+        else
+            _eval_category_name="$EVAL_CATEGORY"
+            _eval_dataset_dir="$PROJECT_DIR/data/amazon_data/$EVAL_CATEGORY"
+        fi
+
         for topk in 1 5; do
             python3 eval.py \
                 --input_dir "$PRED_JSON" \
                 --model "$EXPERIMENT_NAME" \
                 --output_dir "$METRICS_JSON" \
                 --topk "$topk" \
-                --category "$EVAL_CATEGORY"
+                --category "$_eval_category_name" \
+                --dataset_dir "$_eval_dataset_dir"
         done
 
         echo "Evaluation complete. Metrics written to $METRICS_JSON"

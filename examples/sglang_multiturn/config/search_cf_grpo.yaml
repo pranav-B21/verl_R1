@@ -8,9 +8,9 @@ defaults:
 
 data:
   max_prompt_length: 1024
-  max_response_length: 2560
-  train_batch_size: 108
-  val_batch_size: 64
+  max_response_length: 4096
+  train_batch_size: 40
+  val_batch_size: 32
   return_raw_chat: True
   shuffle: False
 
@@ -20,5 +20,5 @@ actor_rollout_ref:
     name: sglang
     multi_turn:
       enable: True
-      max_assistant_turns: 2
+      max_assistant_turns: 4
       format: qwen

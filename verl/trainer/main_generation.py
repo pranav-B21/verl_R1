@@ -20,6 +20,7 @@ import os
 import hydra
 import numpy as np
 import ray
+import yaml
 
 os.environ["NCCL_DEBUG"] = "WARN"
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -57,6 +58,21 @@ def run_generation(config) -> None:
         ray.init(**OmegaConf.to_container(ray_init_kwargs))
 
     ray.get(main_task.remote(config))
+
+def _get_tool_names_from_tool_config(tool_config_path: str | None) -> list[str]:
+    if not tool_config_path:
+        return []
+    with open(tool_config_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    tools = cfg.get("tools") or []
+    tool_names: list[str] = []
+    for tool in tools:
+        schema = (tool or {}).get("tool_schema") or {}
+        fn = (schema.get("function") or {})
+        name = fn.get("name")
+        if name:
+            tool_names.append(str(name))
+    return tool_names
 
 
 @ray.remote(num_cpus=1)
@@ -96,6 +112,7 @@ def main_task(config):
     apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
     num_batch = -(-total_samples // config_batch_size)
     output_lst = [[] for _ in range(config.data.n_samples)]
+    tool_names = _get_tool_names_from_tool_config(getattr(config.rollout.multi_turn, "tool_config_path", None))
 
     for batch_idx in range(num_batch):
         print(f"[{batch_idx + 1}/{num_batch}] Start to process.")
@@ -116,7 +133,15 @@ def main_task(config):
         position_ids = compute_position_id_with_mask(attention_mask)
         batch_dict = {"input_ids": input_ids, "attention_mask": attention_mask, "position_ids": position_ids}
 
-        data = DataProto.from_dict(batch_dict)
+        # carry raw prompts through for sglang multi-turn rollout
+        num_items = len(batch_chat_lst)
+        default_tools_kwargs_list = [{name: {} for name in tool_names} for _ in range(num_items)]
+        non_tensor_batch = {
+            "raw_prompt": np.array(batch_chat_lst, dtype=object),
+            "tools_kwargs": np.array(default_tools_kwargs_list, dtype=object),
+            "interaction_kwargs": np.array([{} for _ in range(num_items)], dtype=object),
+        }
+        data = DataProto.from_dict(tensors=batch_dict, non_tensors=non_tensor_batch)
         data_padded, pad_size = pad_dataproto_to_divisor(data, wg.world_size)
 
         # START TO GENERATE FOR n_samples TIMES

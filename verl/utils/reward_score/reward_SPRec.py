@@ -93,7 +93,7 @@ def similarity_match(solution_str, ground_truth):
         elif rankId <= 100:
             match = 0.1
         elif rankId <= 500:
-            match = 0.05
+            match = 0.001
         else:
             match = 0.0
         if open_count > 1 or close_count > 1:  # prevent output a lot of </answer>
