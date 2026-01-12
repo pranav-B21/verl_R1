@@ -44,4 +44,36 @@ conda deactivate
 sleep 120  # wait for retriever to finish loading index/model
 
 # Launch training on the second node/GPU; it will read the updated config
-srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive bash run_in_container.sh
+training_args=()
+if [[ -n "${CHECKPOINT_PATH}" ]]; then
+  training_args+=(--checkpoint "${CHECKPOINT_PATH}")
+fi
+srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive bash run_in_container.sh "${training_args[@]}" &
+training_pid=$!
+
+# Monitor both jobs; restart retriever on crash; fail job if it can't be restarted.
+while true; do
+  if ! kill -0 "$training_pid" 2>/dev/null; then
+    wait "$training_pid" 2>/dev/null
+    training_status=$?
+    stop_retriever
+    exit "${training_status:-0}"
+  fi
+
+  if [[ -n "${retrieval_pid:-}" ]] && ! kill -0 "$retrieval_pid" 2>/dev/null; then
+    wait "$retrieval_pid" 2>/dev/null
+    retriever_status=$?
+    echo "Retriever exited unexpectedly (exit code ${retriever_status}); attempting restart..." >&2
+    if ! restart_retriever_or_fail "$retriever_status"; then
+      final_status=$?
+      echo "Retriever restart failed; terminating training." >&2
+      if kill -0 "$training_pid" 2>/dev/null; then
+        kill "$training_pid" 2>/dev/null || true
+        wait "$training_pid" 2>/dev/null || true
+      fi
+      exit "${final_status:-1}"
+    fi
+  fi
+
+  sleep 5
+done
