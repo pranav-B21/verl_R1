@@ -3,7 +3,7 @@
 #SBATCH -p gh
 #SBATCH -N 2                # two nodes, one GPU each
 #SBATCH -n 2
-#SBATCH -t 28:00:00
+#SBATCH -t 10:00:00        #changed this for 10 hrs
 #SBATCH -o output_dual_gpu.log
 
 # Vista nodes are single-GPU; this script uses two nodes: one for the retriever, one for training.
@@ -62,7 +62,7 @@ stop_retriever() {
         break
       fi
       sleep 1
-    done/
+    done
     if kill -0 "$retrieval_pid" 2>/dev/null; then
       kill -9 "$retrieval_pid" 2>/dev/null || true
     fi
