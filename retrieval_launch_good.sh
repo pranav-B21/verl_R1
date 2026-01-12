@@ -1,6 +1,7 @@
 module load gcc/15 cuda/12.6 nccl/12.4 nvidia_math
 
-file_path='data/goodreads_data'
+#file_path='data/goodreads_data'
+file_path='data/amazon_data'
 index_file=$file_path/e5_Flat.index
 corpus_file=$file_path/corpora.jsonl
 retriever_name=e5
