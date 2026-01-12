@@ -3,7 +3,7 @@
 #SBATCH -p gh
 #SBATCH -N 2                # two nodes, one GPU each
 #SBATCH -n 2
-#SBATCH -t 16:00:00
+#SBATCH -t 28:00:00
 #SBATCH -o output_dual_gpu.log
 
 # Vista nodes are single-GPU; this script uses two nodes: one for the retriever, one for training.
@@ -35,7 +35,7 @@ RETRIEVER_STARTUP_TIMEOUT_S="${RETRIEVER_STARTUP_TIMEOUT_S:-180}"
 
 # Optional: set this to resume training from a specific checkpoint folder like ".../global_step_500".
 # /scratch/09585/shijunli4527/verl/nq-search-r1-grpo-qwen3-1.7b-mt4/global_step_300
-CHECKPOINT_PATH="/scratch/09585/shijunli4527/verl/nq-search-r1-grpo-qwen3-1.7b-mt4-3072/global_step_1000"
+CHECKPOINT_PATH=""
 
 # Enumerate allocated nodes and pin roles
 nodes=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
@@ -49,7 +49,7 @@ sed -i "s#^\\( *retrieval_service_url: \\).*#\\1${retrieval_url}#" "$CONFIG_FILE
 start_retriever() {
   echo "Starting retriever on ${retriever_host}..."
   srun --nodelist="${retriever_host}" --nodes=1 --ntasks=1 --exclusive bash -lc \
-    "source ~/.bashrc && conda activate retriever && bash ${PROJECT_DIR}/retrieval_launch.sh" &
+    "source ~/.bashrc && conda activate retriever && bash ${PROJECT_DIR}/retrieval_launch_good.sh" &
   retrieval_pid=$!
 }
 
@@ -120,7 +120,7 @@ training_args=()
 if [[ -n "${CHECKPOINT_PATH}" ]]; then
   training_args+=(--checkpoint "${CHECKPOINT_PATH}")
 fi
-srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive bash run_in_container.sh "${training_args[@]}" &
+srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive bash run_in_container_good.sh "${training_args[@]}" &
 training_pid=$!
 
 # Monitor both jobs; restart retriever on crash; fail job if it can't be restarted.

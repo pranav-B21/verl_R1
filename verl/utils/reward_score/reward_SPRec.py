@@ -44,7 +44,7 @@ def read_json(json_file:str) -> dict:
     return json.load(f)
 
 
-def similarity_match(solution_str, ground_truth):
+def similarity_match(solution_str, ground_truth, data_source):
     title = extract_solution(solution_str)
     open_count, close_count = count_answer_tags(solution_str)
 
@@ -65,8 +65,12 @@ def similarity_match(solution_str, ground_truth):
         
         # Identify your sentence-embedding model
         model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
-        embeddings = torch.load(f"./data/amazon_data/CDs_and_Vinyl/embeddings.pt")
-        name2id = read_json(f"./data/amazon_data/CDs_and_Vinyl/name2id.json")
+        if "amazon" in data_source:
+            embeddings = torch.load(f"./data/amazon_data/CDs_and_Vinyl/embeddings.pt")
+            name2id = read_json(f"./data/amazon_data/CDs_and_Vinyl/name2id.json")
+        if "goodreads" in data_source:
+            embeddings = torch.load(f"./data/goodreads_data/Goodreads/embeddings.pt")
+            name2id = read_json(f"./data/goodreads_data/Goodreads/name2id.json")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         embeddings = torch.tensor(embeddings, device=device)
         
@@ -105,6 +109,6 @@ def similarity_match(solution_str, ground_truth):
     return match
 
 
-def compute_score(solution_str, ground_truth, method='strict', format_score=0., score=1.):
-    match_score = similarity_match(solution_str, ground_truth)
+def compute_score(solution_str, ground_truth, data_source, method='strict', format_score=0., score=1.):
+    match_score = similarity_match(solution_str, ground_truth, data_source)
     return match_score
