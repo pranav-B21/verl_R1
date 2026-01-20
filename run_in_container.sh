@@ -1,7 +1,29 @@
 #!/bin/bash
 
 # This script runs the training inside the Singularity container
-# Usage: bash run_in_container.sh
+# Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]
+
+CHECKPOINT_PATH=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --checkpoint|--checkpoint-path)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Error: --checkpoint requires a non-empty path argument." >&2
+        exit 2
+      fi
+      CHECKPOINT_PATH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 
@@ -10,23 +32,20 @@ module reset
 module load nvidia/25.5 cuda/12.9 gcc/15
 module load tacc-apptainer
 
-#log in 
-python -m wandb login
-
 # Set environment variables that will be passed to the container
 export CUDA_VISIBLE_DEVICES=0
 export DATA_DIR='./data/amazon_data'
 export TRAIN_DATA_DIR='./data/amazon_data'
 export TEST_DATA_DIR='./data/amazon_data'
 
-export SSL_CERT_FILE=`/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem`
+export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
+
 
 # export BASE_MODEL='Qwen/Qwen2.5-1.5B-Instruct'
 # export BASE_MODEL='meta-llama/Llama-3.2-1B-Instruct'
 # export EXPERIMENT_NAME=amazon-search-r1-grpo-llama-3.2-1b-data-new-4
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-fix-retr
-
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-mt4-3072-rerun
 # export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
 # export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-it-em
 # export BASE_MODEL='Qwen/Qwen2.5-7B'
@@ -61,6 +80,12 @@ export TOKENIZERS_PARALLELISM=false
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
+
+extra_overrides=()
+if [[ -n "${CHECKPOINT_PATH}" ]]; then
+  extra_overrides+=(trainer.resume_mode=resume_path)
+  extra_overrides+=(trainer.resume_from_path="${CHECKPOINT_PATH}")
+fi
 
 # Run using singularity exec instead of shell to avoid nested environment issues
 singularity exec --nv \
@@ -100,18 +125,18 @@ singularity exec --nv \
         actor_rollout_ref.actor.kl_loss_coef=0.001 \
         actor_rollout_ref.actor.kl_loss_type=low_var_kl \
         actor_rollout_ref.rollout.temperature=1 \
-        actor_rollout_ref.rollout.multi_turn.max_assistant_turns=2 \
+        actor_rollout_ref.rollout.multi_turn.max_assistant_turns=4 \
         trainer.logger=['wandb'] \
         trainer.val_only=false \
         trainer.val_before_train=true \
         trainer.n_gpus_per_node=1 \
         trainer.nnodes=1 \
-        trainer.save_freq=100 \
-        trainer.test_freq=60 \
+        trainer.save_freq=50 \
+        trainer.test_freq=50 \
         trainer.project_name=$WAND_PROJECT \
         trainer.experiment_name=$EXPERIMENT_NAME \
-        trainer.total_epochs=10 \
+        trainer.total_epochs=35 \
         trainer.default_local_dir=/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME \
         actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
+        "${extra_overrides[@]}" \
     2>&1 | tee $EXPERIMENT_NAME.log
-
