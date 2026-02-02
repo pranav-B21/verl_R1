@@ -207,11 +207,25 @@ class DenseRetriever(BaseRetriever):
     def __init__(self, config):
         super().__init__(config)
         self.index = faiss.read_index(self.index_path)
+        self.gpu_resources = None  # Keep GPU resources alive to prevent GC
         if config.faiss_gpu:
+            # Create GPU resources with no temporary memory to avoid stack allocator issues
+            # The stack allocator requires LIFO deallocation order which can be violated
+            # when the encoder model and FAISS operations interleave on GPU
+            ngpus = faiss.get_num_gpus()
+            print(f"[DenseRetriever] Initializing FAISS on {ngpus} GPU(s) with noTempMemory()")
+            self.gpu_resources = []
+            gpus = list(range(ngpus))
+            for i in gpus:
+                res = faiss.StandardGpuResources()
+                # Disable stack-based temp memory allocator, this was causing the error as it tried to free up the GPU memory for the retriever
+                res.noTempMemory()  
+                self.gpu_resources.append(res)
+
             co = faiss.GpuMultipleClonerOptions()
             co.useFloat16 = True
             co.shard = True
-            self.index = faiss.index_cpu_to_all_gpus(self.index, co=co)
+            self.index = faiss.index_cpu_to_gpu_multiple_py(self.gpu_resources, self.index, co, gpus)
 
         self.corpus = load_corpus(self.corpus_path)
         self.encoder = Encoder(

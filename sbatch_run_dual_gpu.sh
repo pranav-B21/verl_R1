@@ -25,7 +25,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-PROJECT_DIR="/work/11138/pranavbelligundu/vista/Project/verl_R1"
+PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_FILE="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml"
 CONFIG_BACKUP=$(mktemp)
 cp "$CONFIG_FILE" "$CONFIG_BACKUP"
@@ -35,7 +35,8 @@ RETRIEVER_STARTUP_TIMEOUT_S="${RETRIEVER_STARTUP_TIMEOUT_S:-180}"
 
 # Optional: set this to resume training from a specific checkpoint folder like ".../global_step_500".
 # /scratch/11138/pranavbelligundu/verl/nq-search-r1-grpo-qwen3-1.7b-mt4/global_step_300
-CHECKPOINT_PATH="/scratch/11138/pranavbelligundu/verl/nq-search-r1-grpo-qwen3-1.7b-mt4-3072/global_step_1000"
+# Set to a valid checkpoint folder (e.g., ".../global_step_500") to resume when a certain experiment is actually in motion
+CHECKPOINT_PATH=""
 
 # Enumerate allocated nodes and pin roles
 nodes=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
@@ -49,7 +50,7 @@ sed -i "s#^\\( *retrieval_service_url: \\).*#\\1${retrieval_url}#" "$CONFIG_FILE
 start_retriever() {
   echo "Starting retriever on ${retriever_host}..."
   srun --nodelist="${retriever_host}" --nodes=1 --ntasks=1 --exclusive bash -lc \
-    "source ~/.bashrc && conda activate retriever && bash ${PROJECT_DIR}/retrieval_launch.sh" &
+    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash retrieval_launch.sh" &
   retrieval_pid=$!
 }
 
@@ -120,7 +121,7 @@ training_args=()
 if [[ -n "${CHECKPOINT_PATH}" ]]; then
   training_args+=(--checkpoint "${CHECKPOINT_PATH}")
 fi
-srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive bash run_in_container.sh "${training_args[@]}" &
+srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive --chdir="${PROJECT_DIR}" bash run_in_container.sh "${training_args[@]}" &
 training_pid=$!
 
 # Monitor both jobs; restart retriever on crash; fail job if it can't be restarted.

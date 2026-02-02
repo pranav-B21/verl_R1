@@ -4,7 +4,7 @@ set -euo pipefail
 # This script evaluates a trained checkpoint inside the Singularity container.
 # Usage: bash test_in_container.sh
 
-cd /work/09585/shijunli4527/vista/Project/verl_R1
+cd /work/11138/pranavbelligundu/vista/verl_R1
 
 # Load required modules
 module reset
@@ -17,23 +17,23 @@ export DATA_DIR=${DATA_DIR:-'./data/amazon_data'}
 export TRAIN_DATA_DIR=${TRAIN_DATA_DIR:-'./data/amazon_data'}
 export TEST_DATA_DIR=${TEST_DATA_DIR:-'./data/amazon_data'}
 
-export SSL_CERT_FILE=${SSL_CERT_FILE:-/work/09585/shijunli4527/vista/Software/cacert.pem}
+export SSL_CERT_FILE=${SSL_CERT_FILE:-/work/11138/pranavbelligundu/vista/Software/cacert.pem}
 
 # Training config defaults (can be overridden before calling the script)
-export BASE_MODEL=${BASE_MODEL:-'meta-llama/Llama-3.2-1B-Instruct'}
-export EXPERIMENT_NAME=${EXPERIMENT_NAME:-amazon-search-r1-grpo-llama-3.2-1b}
+export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen3-1.7B'}
+export EXPERIMENT_NAME=${EXPERIMENT_NAME:-nq-search-r1-grpo-qwen3-1.7b-sbatch}
 export WAND_PROJECT=${WAND_PROJECT:-'Search-R1-CF'}
 
 export VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-XFORMERS}
 export GLIBC_TUNABLES=${GLIBC_TUNABLES:-glibc.rtld.optional_static_tls=2048}
 export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
 
-PROJECT_DIR="/work/09585/shijunli4527/vista/Project/verl_R1"
+PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
 # Evaluation specific overrides (customize as needed)
-CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/09585/shijunli4527/verl/$EXPERIMENT_NAME"}
+CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME"}
 CHECKPOINT_STEP=${CHECKPOINT_STEP:-latest} # Accepts "latest", a number, or "global_step_*"
 FORCE_MERGE=${FORCE_MERGE:-0}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-16}
@@ -66,7 +66,7 @@ if [ ! -d "$CHECKPOINT_PATH" ]; then
     exit 1
 fi
 
-DEFAULT_MERGED_DIR="/scratch/09585/shijunli4527/verl/merged_models/$EXPERIMENT_NAME/$CHECKPOINT_SUBDIR"
+DEFAULT_MERGED_DIR="/scratch/11138/pranavbelligundu/verl/merged_models/$EXPERIMENT_NAME/$CHECKPOINT_SUBDIR"
 MERGED_MODEL_DIR=${MERGED_MODEL_DIR:-$DEFAULT_MERGED_DIR}
 DEFAULT_EVAL_DIR="$PROJECT_DIR/outputs/eval/$EXPERIMENT_NAME/$CHECKPOINT_SUBDIR"
 EVAL_OUTPUT_DIR=${EVAL_OUTPUT_DIR:-$DEFAULT_EVAL_DIR}
