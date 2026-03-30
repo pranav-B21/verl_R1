@@ -50,7 +50,7 @@ sed -i "s#^\\( *retrieval_service_url: \\).*#\\1${retrieval_url}#" "$CONFIG_FILE
 start_retriever() {
   echo "Starting retriever on ${retriever_host}..."
   srun --nodelist="${retriever_host}" --nodes=1 --ntasks=1 --exclusive bash -lc \
-    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash retrieval_launch.sh" &
+    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash retrieval_launch_ablationA.sh" &
   retrieval_pid=$!
 }
 
@@ -121,7 +121,7 @@ training_args=()
 if [[ -n "${CHECKPOINT_PATH}" ]]; then
   training_args+=(--checkpoint "${CHECKPOINT_PATH}")
 fi
-srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive --chdir="${PROJECT_DIR}" bash run_in_container.sh "${training_args[@]}" &
+srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive --chdir="${PROJECT_DIR}" bash run_in_container_ablationA.sh "${training_args[@]}" &
 training_pid=$!
 
 # Monitor both jobs; restart retriever on crash; fail job if it can't be restarted.

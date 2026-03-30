@@ -1,7 +1,17 @@
 #!/bin/bash
 
-# This script runs the training inside the Singularity container
-# Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]
+# Reward B ablation: R_total = R_answer - lambda * beta * redundancy
+# Identical to run_in_container.sh except:
+#   - EXPERIMENT_NAME  → distinct WandB run for comparison with baseline
+#   - USE_REWARD_B=1   → routes amazon data to reward_SPRec_rewardB.compute_score
+#   - REWARD_B_LAMBDA  → tunable; default 0.3 (set here to make it explicit)
+#   - REWARD_B_BETA    → tunable; default 1.0
+#
+# To compare against baseline in WandB, open both runs in the same chart:
+#   Baseline:  nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
+#   This run:  nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB
+#
+# Usage: bash run_in_container_rewardB.sh [--checkpoint /path/to/global_step_XXX]
 
 CHECKPOINT_PATH=""
 while [[ $# -gt 0 ]]; do
@@ -15,7 +25,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      echo "Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]"
+      echo "Usage: bash run_in_container_rewardB.sh [--checkpoint /path/to/global_step_XXX]"
       exit 0
       ;;
     *)
@@ -27,12 +37,10 @@ done
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 
-# Load required modules
 module reset
 module load nvidia/25.5 cuda/12.9 gcc/15
 module load tacc-apptainer
 
-# Set environment variables that will be passed to the container
 export CUDA_VISIBLE_DEVICES=0
 export DATA_DIR='./data/amazon_data'
 export TRAIN_DATA_DIR='./data/amazon_data'
@@ -40,42 +48,20 @@ export TEST_DATA_DIR='./data/amazon_data'
 
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
-
-# export BASE_MODEL='Qwen/Qwen2.5-1.5B-Instruct'
-# export BASE_MODEL='meta-llama/Llama-3.2-1B-Instruct'
-# export EXPERIMENT_NAME=amazon-search-r1-grpo-llama-3.2-1b-data-new-4
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
-# export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-it-em
-# export BASE_MODEL='Qwen/Qwen2.5-7B'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-7b-em
-# export BASE_MODEL='Qwen/Qwen2.5-7B-Instruct'
-# export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-7b-it-em
-
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB
 
 export WAND_PROJECT='Search-R1-CF'
 export VLLM_ATTENTION_BACKEND=XFORMERS
-
-# Fix for glibc TLS exhaustion error
 export GLIBC_TUNABLES=glibc.rtld.optional_static_tls=2048
 export TOKENIZERS_PARALLELISM=false
 
-# Additional fix: Reduce dynamic library loading
-# export OMP_NUM_THREADS=1
-# export MALLOC_TRIM_THRESHOLD_=0
-
-: '
-    --env OMP_NUM_THREADS=$OMP_NUM_THREADS \
-    --env MALLOC_TRIM_THRESHOLD_=$MALLOC_TRIM_THRESHOLD_ \
-    --env PYTHONUNBUFFERED=1 \
-    --env NCCL_ASYNC_ERROR_HANDLING=0 \
-    --env NCCL_IB_DISABLE=1 \
-    --env NCCL_P2P_DISABLE=1 \
-    --env PYTORCH_JIT=0 \
-    --env TORCH_COMPILE_DISABLE=1 \
-    --env PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False \
-'
+# --- Reward B switches ---
+# USE_REWARD_B=1 activates reward_SPRec_rewardB.compute_score in __init__.py
+# Tune REWARD_B_LAMBDA / REWARD_B_BETA here for hyperparameter sweeps.
+export USE_REWARD_B=1
+export REWARD_B_LAMBDA=0.3
+export REWARD_B_BETA=1.0
 
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
@@ -87,13 +73,15 @@ if [[ -n "${CHECKPOINT_PATH}" ]]; then
   extra_overrides+=(trainer.resume_from_path="${CHECKPOINT_PATH}")
 fi
 
-# Run using singularity exec instead of shell to avoid nested environment issues
 singularity exec --nv \
     --bind /work:/work \
     --env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES \
     --env GLIBC_TUNABLES=$GLIBC_TUNABLES \
     --env TOKENIZERS_PARALLELISM=$TOKENIZERS_PARALLELISM \
     --env VLLM_ATTENTION_BACKEND=$VLLM_ATTENTION_BACKEND \
+    --env USE_REWARD_B=$USE_REWARD_B \
+    --env REWARD_B_LAMBDA=$REWARD_B_LAMBDA \
+    --env REWARD_B_BETA=$REWARD_B_BETA \
     --pwd $PROJECT_DIR \
     sglang_25.10-py3-tls-fixed.sif \
     python3 -m verl.trainer.main_ppo \

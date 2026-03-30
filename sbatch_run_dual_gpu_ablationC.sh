@@ -4,7 +4,7 @@
 #SBATCH -N 2                # two nodes, one GPU each
 #SBATCH -n 2
 #SBATCH -t 24:00:00
-#SBATCH -o output_dual_gpu.log
+#SBATCH -o output_dual_gpu_ablationC.log
 
 # Vista nodes are single-GPU; this script uses two nodes: one for the retriever, one for training.
 
@@ -45,12 +45,12 @@ training_host="${nodes[1]:-${nodes[0]}}"
 
 # Point tool config at the retriever host for this job
 retrieval_url="http://${retriever_host}:8000/retrieve"
-sed -i "s#^\\( *retrieval_service_url: \\).*#\\1${retrieval_url}#" "$CONFIG_FILE"
+sed -i "s#^\( *retrieval_service_url: \).*#\1${retrieval_url}#" "$CONFIG_FILE"
 
 start_retriever() {
   echo "Starting retriever on ${retriever_host}..."
   srun --nodelist="${retriever_host}" --nodes=1 --ntasks=1 --exclusive bash -lc \
-    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash retrieval_launch.sh" &
+    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash retrieval_launch_ablationC.sh" &
   retrieval_pid=$!
 }
 
@@ -121,7 +121,7 @@ training_args=()
 if [[ -n "${CHECKPOINT_PATH}" ]]; then
   training_args+=(--checkpoint "${CHECKPOINT_PATH}")
 fi
-srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive --chdir="${PROJECT_DIR}" bash run_in_container.sh "${training_args[@]}" &
+srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive --chdir="${PROJECT_DIR}" bash run_in_container_ablationC.sh "${training_args[@]}" &
 training_pid=$!
 
 # Monitor both jobs; restart retriever on crash; fail job if it can't be restarted.

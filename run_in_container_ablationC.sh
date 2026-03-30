@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # This script runs the training inside the Singularity container
-# Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]
+# Usage: bash run_in_container_ablationC.sh [--checkpoint /path/to/global_step_XXX]
 
 CHECKPOINT_PATH=""
 while [[ $# -gt 0 ]]; do
@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      echo "Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]"
+      echo "Usage: bash run_in_container_ablationC.sh [--checkpoint /path/to/global_step_XXX]"
       exit 0
       ;;
     *)
@@ -35,8 +35,8 @@ module load tacc-apptainer
 # Set environment variables that will be passed to the container
 export CUDA_VISIBLE_DEVICES=0
 export DATA_DIR='./data/amazon_data'
-export TRAIN_DATA_DIR='./data/amazon_data'
-export TEST_DATA_DIR='./data/amazon_data'
+export TRAIN_DATA_DIR='./data/amazon_data/ablations/ablation_c_no_reasoning'
+export TEST_DATA_DIR='./data/amazon_data/ablations/ablation_c_no_reasoning'
 
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
@@ -45,7 +45,7 @@ export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.
 # export BASE_MODEL='meta-llama/Llama-3.2-1B-Instruct'
 # export EXPERIMENT_NAME=amazon-search-r1-grpo-llama-3.2-1b-data-new-4
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-ablationC
 # export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
 # export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-it-em
 # export BASE_MODEL='Qwen/Qwen2.5-7B'
