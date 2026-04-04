@@ -90,6 +90,7 @@ fi
 # Run using singularity exec instead of shell to avoid nested environment issues
 singularity exec --nv \
     --bind /work:/work \
+    --bind /scratch:/scratch \
     --env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES \
     --env GLIBC_TUNABLES=$GLIBC_TUNABLES \
     --env TOKENIZERS_PARALLELISM=$TOKENIZERS_PARALLELISM \
