@@ -25,7 +25,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+<<<<<<< HEAD
 cd /work/11138/pranavbelligundu/vista/verl_R1
+=======
+cd /work/09585/shijunli4527/vista/Project/verl_R1
+>>>>>>> upstream/vista
 
 # Load required modules
 module reset
@@ -38,7 +42,11 @@ export DATA_DIR='./data/amazon_data'
 export TRAIN_DATA_DIR='./data/amazon_data'
 export TEST_DATA_DIR='./data/amazon_data'
 
+<<<<<<< HEAD
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/Software/cacert.pem
+=======
+export SSL_CERT_FILE=/work/09585/shijunli4527/vista/Software/cacert.pem
+>>>>>>> upstream/vista
 
 
 # export BASE_MODEL='Qwen/Qwen2.5-1.5B-Instruct'
@@ -77,7 +85,11 @@ export TOKENIZERS_PARALLELISM=false
     --env PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False \
 '
 
+<<<<<<< HEAD
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
+=======
+PROJECT_DIR="/work/09585/shijunli4527/vista/Project/verl_R1"
+>>>>>>> upstream/vista
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
@@ -136,7 +148,11 @@ singularity exec --nv \
         trainer.project_name=$WAND_PROJECT \
         trainer.experiment_name=$EXPERIMENT_NAME \
         trainer.total_epochs=15 \
+<<<<<<< HEAD
         trainer.default_local_dir=/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME \
+=======
+        trainer.default_local_dir=/scratch/09585/shijunli4527/verl/$EXPERIMENT_NAME \
+>>>>>>> upstream/vista
         actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
         "${extra_overrides[@]}" \
     2>&1 | tee $EXPERIMENT_NAME.log

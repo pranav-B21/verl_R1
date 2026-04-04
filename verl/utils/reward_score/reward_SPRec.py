@@ -97,7 +97,7 @@ def similarity_match(solution_str, ground_truth, data_source):
         elif rankId <= 100:
             match = 0.1
         elif rankId <= 500:
-            match = 0.05
+            match = 0.001
         else:
             match = 0.0
         if open_count > 1 or close_count > 1:  # prevent output a lot of </answer>
@@ -111,4 +111,8 @@ def similarity_match(solution_str, ground_truth, data_source):
 
 def compute_score(solution_str, ground_truth, data_source, method='strict', format_score=0., score=1.):
     match_score = similarity_match(solution_str, ground_truth, data_source)
+<<<<<<< HEAD
     return match_score
+=======
+    return match_score
+>>>>>>> upstream/vista

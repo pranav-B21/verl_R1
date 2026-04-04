@@ -103,6 +103,7 @@ def default_compute_score(
         res = search_r1_like_qa_em.compute_score(solution_str, ground_truth)
     
     elif ("amazon" in data_source or "goodreads" in data_source or "movie" in data_source):
+<<<<<<< HEAD
         import os
         if os.environ.get("USE_REWARD_B", "0") == "1":
             from . import reward_SPRec_rewardB
@@ -110,6 +111,11 @@ def default_compute_score(
         else:
             from . import reward_SPRec
             res = reward_SPRec.compute_score(solution_str, ground_truth, data_source)
+=======
+        from . import reward_SPRec
+
+        res = reward_SPRec.compute_score(solution_str, ground_truth, data_source)
+>>>>>>> upstream/vista
 
     else:
         raise NotImplementedError(f"Reward function is not implemented for {data_source=}")

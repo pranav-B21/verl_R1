@@ -17,6 +17,7 @@
 
 import argparse
 import json
+import threading
 import warnings
 from typing import Optional
 
@@ -209,6 +210,7 @@ class DenseRetriever(BaseRetriever):
         self.index = faiss.read_index(self.index_path)
         self.gpu_resources = None  # Keep GPU resources alive to prevent GC
         if config.faiss_gpu:
+<<<<<<< HEAD
             # Create GPU resources with no temporary memory to avoid stack allocator issues
             # The stack allocator requires LIFO deallocation order which can be violated
             # when the encoder model and FAISS operations interleave on GPU
@@ -226,6 +228,11 @@ class DenseRetriever(BaseRetriever):
             co.useFloat16 = True
             co.shard = True
             self.index = faiss.index_cpu_to_gpu_multiple_py(self.gpu_resources, self.index, co, gpus)
+=======
+            gpu_resources = faiss.StandardGpuResources()
+            gpu_resources.noTempMemory()
+            self.index = faiss.index_cpu_to_gpu(gpu_resources, 0, self.index)
+>>>>>>> upstream/vista
 
         self.corpus = load_corpus(self.corpus_path)
         self.encoder = Encoder(
@@ -338,6 +345,7 @@ class QueryRequest(BaseModel):
 
 
 app = FastAPI()
+_retriever_lock = threading.Lock()
 
 
 @app.post("/retrieve")
@@ -352,7 +360,7 @@ def retrieve_endpoint(request: QueryRequest):
       "return_scores": true
     }
 
-    Output format (when return_scores=True，similarity scores are returned):
+    Output format (when return_scores=True,similarity scores are returned):
     {
         "result": [
             [   # Results for each query
@@ -368,15 +376,19 @@ def retrieve_endpoint(request: QueryRequest):
     if not request.topk:
         request.topk = config.retrieval_topk  # fallback to default
 
-    # Perform batch retrieval
-    if request.return_scores:
-        results, scores = retriever.batch_search(
-            query_list=request.queries, num=request.topk, return_score=True
-        )
-    else:
-        results = retriever.batch_search(query_list=request.queries, num=request.topk, return_score=False)
-        # create dummy score structure to keep response handling simple
-        scores = [[None] * len(single_result) for single_result in results]
+    # FastAPI runs sync endpoints in a threadpool. FAISS GPU indexes / CUDA
+    # allocators are not thread-safe; concurrent retrieval requests can crash
+    # the process (e.g., segfault). Serialize access to the retriever.
+    with _retriever_lock:
+        # Perform batch retrieval
+        if request.return_scores:
+            results, scores = retriever.batch_search(
+                query_list=request.queries, num=request.topk, return_score=True
+            )
+        else:
+            results = retriever.batch_search(query_list=request.queries, num=request.topk, return_score=False)
+            # create dummy score structure to keep response handling simple
+            scores = [[None] * len(single_result) for single_result in results]
 
     # Format response
     resp = []

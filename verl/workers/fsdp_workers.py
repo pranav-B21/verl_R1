@@ -95,6 +95,15 @@ logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 device_name = get_device_name()
 
 
+def _get_or_create_event_loop() -> asyncio.AbstractEventLoop:
+    try:
+        return asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+
 def create_device_mesh(world_size, fsdp_size):
     if fsdp_size < 0 or fsdp_size >= world_size:
         device_mesh = init_device_mesh(device_name, mesh_shape=(world_size,), mesh_dim_names=["fsdp"])
@@ -630,109 +639,124 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # For sync mode, we directly switch to trainer mode here.
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
         if rollout_config.mode == "sync" and self._is_actor:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self.trainer_mode())
+            self.trainer_mode()
 
-    async def rollout_mode(self):
-        """Context switch hybridengine to rollout mode."""
-        aggressive_empty_cache(force_sync=True)
+    def rollout_mode(self):
+        """Context switch hybridengine to rollout mode.
 
-        log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
-        if self._is_offload_param:
-            load_fsdp_model_to_gpu(self.actor_module_fsdp)
-        log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
+        NOTE: This is intentionally a sync method so `ActorRolloutRefWorker` remains a sync Ray actor.
+        """
 
-        peft_config = None
-        peft_model = getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-        if hasattr(peft_model, "peft_config"):  # LoRA
-            peft_config = peft_model.peft_config.get("default", None)
-            params = collect_lora_params(
-                module=self.actor_module_fsdp,
-                layered_summon=self.config.rollout.get("layered_summon", False),
-                base_sync_done=self.base_sync_done,
-            )
-            if not self.base_sync_done:
-                params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
-        else:
-            params = self.actor_module_fsdp.state_dict()
+        async def _rollout_mode_async():
+            aggressive_empty_cache(force_sync=True)
 
-        params = convert_weight_keys(
-            params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
-        )
+            log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
+            if self._is_offload_param:
+                load_fsdp_model_to_gpu(self.actor_module_fsdp)
+            log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
 
-        # Special handling for LoRA with sleep_level=2:
-        # When sleep_level=2, base model weights are destroyed during each sleep cycle.
-        # separately collect and update LoRA weights and base model weights through their respective interfaces.
-        # Here: params contains LoRA weights, base_model_params contains base model weights.
-        if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
-            base_model_params = collect_lora_params(
-                module=self.actor_module_fsdp,
-                layered_summon=self.layered_summon,
-                base_sync_done=False,
-            )
-            base_model_params = {replace_lora_wrapper(k, peft_config): v for k, v in base_model_params.items()}
-            base_model_params = convert_weight_keys(
-                base_model_params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+            peft_config = None
+            peft_model = getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+            if hasattr(peft_model, "peft_config"):  # LoRA
+                peft_config = peft_model.peft_config.get("default", None)
+                params = collect_lora_params(
+                    module=self.actor_module_fsdp,
+                    layered_summon=self.config.rollout.get("layered_summon", False),
+                    base_sync_done=self.base_sync_done,
+                )
+                if not self.base_sync_done:
+                    params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
+            else:
+                params = self.actor_module_fsdp.state_dict()
+
+            params = convert_weight_keys(
+                params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
             )
 
-        log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
-        if self._is_offload_param:
-            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
-        log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
+            # Special handling for LoRA with sleep_level=2:
+            # When sleep_level=2, base model weights are destroyed during each sleep cycle.
+            # separately collect and update LoRA weights and base model weights through their respective interfaces.
+            # Here: params contains LoRA weights, base_model_params contains base model weights.
+            base_model_params = None
+            if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
+                base_model_params = collect_lora_params(
+                    module=self.actor_module_fsdp,
+                    layered_summon=self.layered_summon,
+                    base_sync_done=False,
+                )
+                base_model_params = {replace_lora_wrapper(k, peft_config): v for k, v in base_model_params.items()}
+                base_model_params = convert_weight_keys(
+                    base_model_params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+                )
 
-        set_expandable_segments(False)
+            log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
+            if self._is_offload_param:
+                offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+            log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
 
-        if peft_config is not None and self.base_sync_done:
-            per_tensor_param = params.items() if isinstance(params, dict) else params  # Fixed: handle dict case
-        else:
-            device = get_device_id()  # used when fsdp2 set cpu_offload_policy
-            per_tensor_param = (
-                (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
-                for name, param in params.items()
+            set_expandable_segments(False)
+
+            if peft_config is not None and self.base_sync_done:
+                per_tensor_param = params.items()
+            else:
+                device = get_device_id()  # used when fsdp2 set cpu_offload_policy
+                per_tensor_param = (
+                    (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+                    for name, param in params.items()
+                )
+
+            if self.config.rollout.free_cache_engine:
+                await self.rollout.resume(tags=["weights"])
+            log_gpu_memory_usage("After resume weights", logger=logger)
+
+            if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
+                assert base_model_params is not None
+                device = get_device_id()
+                per_tensor_base_params = (
+                    (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+                    for name, param in base_model_params.items()
+                )
+                await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
+
+            await self.rollout.update_weights(
+                per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done
             )
+            log_gpu_memory_usage("After update_weights", logger=logger)
+            aggressive_empty_cache(force_sync=True)
+            if self.config.rollout.free_cache_engine:
+                await self.rollout.resume(tags=["kv_cache"])
+            log_gpu_memory_usage("After resume kv_cache", logger=logger)
 
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.resume(tags=["weights"])
-        log_gpu_memory_usage("After resume weights", logger=logger)
+            self.base_sync_done = True
+            # important: need to manually set the random states of each tp to be identical.
+            self.torch_random_states = get_torch_device().get_rng_state()
+            get_torch_device().set_rng_state(self.gen_random_states)
 
-        if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
-            per_tensor_base_params = (
-                (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
-                for name, param in base_model_params.items()
-            )
-            await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
-            del base_model_params, per_tensor_base_params
+        loop = _get_or_create_event_loop()
+        return loop.run_until_complete(_rollout_mode_async())
 
-        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
-        log_gpu_memory_usage("After update_weights", logger=logger)
-        del params, per_tensor_param
-        aggressive_empty_cache(force_sync=True)
-        if self.config.rollout.free_cache_engine:
-            await self.rollout.resume(tags=["kv_cache"])
-        log_gpu_memory_usage("After resume kv_cache", logger=logger)
+    def trainer_mode(self):
+        """Context switch hybridengine to trainer mode.
 
-        self.base_sync_done = True
-        # important: need to manually set the random states of each tp to be identical.
-        self.torch_random_states = get_torch_device().get_rng_state()
-        get_torch_device().set_rng_state(self.gen_random_states)
+        NOTE: This is intentionally a sync method so `ActorRolloutRefWorker` remains a sync Ray actor.
+        """
 
-    async def trainer_mode(self):
-        """Context switch hybridengine to trainer mode."""
-        if self.config.rollout.free_cache_engine:
-            log_gpu_memory_usage("Before rollout offload", logger=logger)
-            await self.rollout.release()
-            log_gpu_memory_usage("After rollout offload", logger=logger)
+        async def _trainer_mode_async():
+            if self.config.rollout.free_cache_engine:
+                log_gpu_memory_usage("Before rollout offload", logger=logger)
+                await self.rollout.release()
+                log_gpu_memory_usage("After rollout offload", logger=logger)
 
-        self.actor_module_fsdp.train()
+            self.actor_module_fsdp.train()
 
-        # add empty cache after each compute
-        aggressive_empty_cache(force_sync=True)
+            aggressive_empty_cache(force_sync=True)
+            set_expandable_segments(True)
 
-        set_expandable_segments(True)
+            self.gen_random_states = get_torch_device().get_rng_state()
+            get_torch_device().set_rng_state(self.torch_random_states)
 
-        # restore random states
-        self.gen_random_states = get_torch_device().get_rng_state()
-        get_torch_device().set_rng_state(self.torch_random_states)
+        loop = _get_or_create_event_loop()
+        return loop.run_until_complete(_trainer_mode_async())
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -907,19 +931,14 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         timing_generate = {}
         if self._is_actor:  # For rollout only, we do not switch context.
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.rollout_mode())
+            self.rollout_mode()
             log_gpu_memory_usage("After switch to rollout mode", logger=logger)
 
         with simple_timer("generate_sequences", timing_generate):
             output = self.rollout.generate_sequences(prompts=prompts)
 
         if self._is_actor:
-            loop.run_until_complete(self.trainer_mode())
+            self.trainer_mode()
             log_gpu_memory_usage("After switch to trainer mode", logger=logger)
 
         # We calculate the average timing across all ranks
@@ -1891,6 +1910,98 @@ class RewardModelWorker(Worker, DistProfilerExtension):
 
 # ================================= Async related workers =================================
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
+    async def rollout_mode(self):
+        """Async context switch hybridengine to rollout mode."""
+        # Delegate to the same underlying logic used by the sync worker, but without
+        # creating a nested event loop.
+        aggressive_empty_cache(force_sync=True)
+
+        log_gpu_memory_usage("Before load_fsdp_model_to_gpu", logger=logger)
+        if self._is_offload_param:
+            load_fsdp_model_to_gpu(self.actor_module_fsdp)
+        log_gpu_memory_usage("After load_fsdp_model_to_gpu", logger=logger)
+
+        peft_config = None
+        peft_model = getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+        if hasattr(peft_model, "peft_config"):  # LoRA
+            peft_config = peft_model.peft_config.get("default", None)
+            params = collect_lora_params(
+                module=self.actor_module_fsdp,
+                layered_summon=self.config.rollout.get("layered_summon", False),
+                base_sync_done=self.base_sync_done,
+            )
+            if not self.base_sync_done:
+                params = {replace_lora_wrapper(k, peft_config): v for k, v in params.items()}
+        else:
+            params = self.actor_module_fsdp.state_dict()
+
+        params = convert_weight_keys(params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp))
+
+        base_model_params = None
+        if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
+            base_model_params = collect_lora_params(
+                module=self.actor_module_fsdp,
+                layered_summon=self.layered_summon,
+                base_sync_done=False,
+            )
+            base_model_params = {replace_lora_wrapper(k, peft_config): v for k, v in base_model_params.items()}
+            base_model_params = convert_weight_keys(
+                base_model_params, getattr(self.actor_module_fsdp, "_fsdp_wrapped_module", self.actor_module_fsdp)
+            )
+
+        log_gpu_memory_usage("Before offload_fsdp_model_to_cpu", logger=logger)
+        if self._is_offload_param:
+            offload_fsdp_model_to_cpu(self.actor_module_fsdp)
+        log_gpu_memory_usage("After offload_fsdp_model_to_cpu", logger=logger)
+
+        set_expandable_segments(False)
+
+        if peft_config is not None and self.base_sync_done:
+            per_tensor_param = params.items()
+        else:
+            device = get_device_id()
+            per_tensor_param = (
+                (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+                for name, param in params.items()
+            )
+
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["weights"])
+        log_gpu_memory_usage("After resume weights", logger=logger)
+
+        if peft_config is not None and getattr(self.rollout, "sleep_level", None) == 2:
+            assert base_model_params is not None
+            device = get_device_id()
+            per_tensor_base_params = (
+                (name, param.to(device, non_blocking=True).full_tensor() if isinstance(param, DTensor) else param)
+                for name, param in base_model_params.items()
+            )
+            await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
+
+        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
+        log_gpu_memory_usage("After update_weights", logger=logger)
+        aggressive_empty_cache(force_sync=True)
+        if self.config.rollout.free_cache_engine:
+            await self.rollout.resume(tags=["kv_cache"])
+        log_gpu_memory_usage("After resume kv_cache", logger=logger)
+
+        self.base_sync_done = True
+        self.torch_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.gen_random_states)
+
+    async def trainer_mode(self):
+        """Async context switch hybridengine to trainer mode."""
+        if self.config.rollout.free_cache_engine:
+            log_gpu_memory_usage("Before rollout offload", logger=logger)
+            await self.rollout.release()
+            log_gpu_memory_usage("After rollout offload", logger=logger)
+
+        self.actor_module_fsdp.train()
+        aggressive_empty_cache(force_sync=True)
+        set_expandable_segments(True)
+        self.gen_random_states = get_torch_device().get_rng_state()
+        get_torch_device().set_rng_state(self.torch_random_states)
+
     @register(dispatch_mode=Dispatch.DIRECT_ROLLOUT_METHOD)
     async def wake_up(self):
         await self.rollout_mode()

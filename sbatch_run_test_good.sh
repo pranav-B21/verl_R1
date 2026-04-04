@@ -25,7 +25,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+<<<<<<< HEAD
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
+=======
+PROJECT_DIR="/work/09585/shijunli4527/vista/Project/verl_R1"
+>>>>>>> upstream/vista
 CONFIG_FILE="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml"
 CONFIG_BACKUP=$(mktemp)
 cp "$CONFIG_FILE" "$CONFIG_BACKUP"

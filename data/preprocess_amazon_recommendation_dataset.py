@@ -27,23 +27,23 @@ import pyarrow.parquet as pq
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-DEFAULT_SYSTEM_PROMPT = "You are a helpful and harmless recommendation assistant."
+DEFAULT_SYSTEM_PROMPT = "You are a recommendation assistant."
 
 DEFAULT_REASONING_INSTRUCTION = """Begin by briefly analyzing the current user's viewing history to infer \
 his preference. If necessary, you can then generate a query and call an existing search engine \
 by specifying "<tool_call> query </tool_call>". The query can search: (1) other users' interaction histories and (2) \
-music metadata (Price, SalesRank, Brand, Categories). \
+music metadata including the Price, SalesRank, Brand, Categories. \
 For example, you may query to identify users who engaged with musics similar to those viewed by the current user, \
-retrieve their interaction patterns, and use these insights to predict additional musics the current user may appreciate.
+retrieve their interaction patterns, and use these insights to predict additional musics the current user may appreciate. \
 Also, you may query metadata to enrich context for specific musics. \
-Only query the search engine when necessary, and keep all reasoning concise.
+Only query the search engine when necessary, and keep all reasoning concise. \
 Remember to provide the name of the user's most preferred music (a single item) enclosed within <answer> and </answer> at last, using two double quotes. For example: <answer> \"Revenge\" </answer>."""
 
 DEFAULT_PROMPT_PREFIX = """Resolve the given task. You must conduct reasoning inside <think> and </think> first every \
 time you get new information. After reasoning, if you find you lack some knowledge, you can call a search engine \
 by <tool_call> query </tool_call> and it will return the top searched results between <tool_response> and </tool_response>. \
-You can contiue this reasoning-search process. If you find no further external knowledge needed, you must directly provide \
-the name of the user's most preferred music inside <answer> and </answer> and use two double quotes to enclose the name of the music, without any other illustrations. Please provide only a single music that best matches the user's preferences. For example, <answer> \"Revenge\" </answer>. Task: {question}
+You can continue this reasoning and search process. If you find no further external knowledge needed, you must directly provide \
+the name of the user's most preferred music inside <answer> and </answer> and use two double quotes to enclose the name of the music, without any other illustrations. Task: {question}
 """
 
 

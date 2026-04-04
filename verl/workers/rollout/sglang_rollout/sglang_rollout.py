@@ -19,6 +19,7 @@ import asyncio
 import logging
 import multiprocessing as mp
 import os
+import threading
 from copy import deepcopy
 from json import JSONDecodeError
 from typing import Any, Generator, Optional
@@ -85,6 +86,25 @@ except ImportError:
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+
+def _get_or_create_event_loop() -> asyncio.AbstractEventLoop:
+    try:
+        return asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop
+
+
+def _run_coro_sync(loop: asyncio.AbstractEventLoop, coro):
+    if loop.is_running():
+        raise RuntimeError(
+            "SGLangRollout cannot call loop.run_until_complete() while an event loop is already running in this "
+            "thread. Ensure the caller runs in a sync context (e.g., ActorRolloutRefWorker is a sync Ray actor), "
+            "or use the async worker/adapter paths."
+        )
+    return loop.run_until_complete(coro)
 
 
 # patch to avoid issue https://github.com/sgl-project/sglang/issues/6723
@@ -735,8 +755,9 @@ class SGLangRollout(BaseRollout):
         request_sampling_params.update(kwargs)
 
         if self._tp_rank == 0:
-            loop = asyncio.get_event_loop()
-            output = loop.run_until_complete(
+            loop = _get_or_create_event_loop()
+            output = _run_coro_sync(
+                loop,
                 self._engine.async_generate(
                     prompt=None,  # because we have already convert it to prompt token id
                     sampling_params=request_sampling_params,
@@ -807,8 +828,8 @@ class SGLangRollout(BaseRollout):
 
         # free cache engine
         if self._engine is not None and self._tp_rank == 0:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._engine.flush_cache())
+            loop = _get_or_create_event_loop()
+            _run_coro_sync(loop, self._engine.flush_cache())
 
         return DataProto(batch=batch, non_tensor_batch=non_tensor_batch)
 
@@ -1144,11 +1165,12 @@ class SGLangRollout(BaseRollout):
             # distinguish training and validation
             if is_validate:
                 # Validation mode: process all requests without abort
-                loop = asyncio.get_event_loop()
-                output_req_list = loop.run_until_complete(
+                loop = _get_or_create_event_loop()
+                output_req_list = _run_coro_sync(
+                    loop,
                     asyncio.gather(
-                        *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list],
-                    )
+                        *[self._async_rollout_a_request(req, do_sample, is_validate, **kwargs) for req in req_list]
+                    ),
                 )
             else:
                 # add progress monitoring and abort function
@@ -1196,8 +1218,8 @@ class SGLangRollout(BaseRollout):
                         await self._engine.abort_request(abort_all=True)
                     return final_results
 
-                loop = asyncio.get_event_loop()
-                output_req_list = loop.run_until_complete(run_with_cancellation())
+                loop = _get_or_create_event_loop()
+                output_req_list = _run_coro_sync(loop, run_with_cancellation())
 
             sorted_output_req_list = sorted(output_req_list, key=lambda x: (x.batch_data_id, x.rollout_offset))
         else:
@@ -1361,8 +1383,8 @@ class SGLangRollout(BaseRollout):
 
         # free cache engine
         if self._engine is not None and self._tp_rank == 0:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._engine.flush_cache())
+            loop = _get_or_create_event_loop()
+            _run_coro_sync(loop, self._engine.flush_cache())
 
         non_tensor_batch = {
             "messages": np.array(messages),

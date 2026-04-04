@@ -79,18 +79,40 @@ model = SentenceTransformer(args.encoder)
 from tqdm import tqdm
 embeddings = torch.tensor(embeddings).cuda()
 text = []
+def extract_last_quoted_answer_span(prediction: str) -> str:
+    if not prediction:
+        return ""
+
+    # Prefer the last <answer>...</answer> block if present (case-insensitive).
+    answer_blocks = re.findall(r"<answer>(.*?)</answer>", prediction, flags=re.IGNORECASE | re.DOTALL)
+    search_space = answer_blocks[-1] if answer_blocks else prediction
+
+    # Extract the last quoted span.
+    quoted = re.findall(r'"([^"]+)"', search_space)
+    if quoted:
+        return quoted[-1].strip()
+
+    # Fallback: try the whole prediction if we only searched an answer block.
+    if answer_blocks:
+        quoted_full = re.findall(r'"([^"]+)"', prediction)
+        if quoted_full:
+            return quoted_full[-1].strip()
+
+    # Last resort: use first non-empty line.
+    for line in prediction.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
 for i,_ in tqdm(enumerate(test_data)):
     if(len(_["predict"])>0):
         if(len(_['predict'][0])==0):
             text.append("NAN")
             print("Empty prediction!")
         else:
-            match = re.search(r'"([^"]*)', _['predict'][0])
-            if match:
-                name = match.group(1)
-                text.append(name)
-            else:
-                text.append(_['predict'][0].split('\n', 1)[0])
+            name = extract_last_quoted_answer_span(_["predict"][0])
+            text.append(name if name else "NAN")
     else:
         print("Empty:")
 

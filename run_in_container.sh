@@ -2,6 +2,31 @@
 
 # This script runs the training inside the Singularity container
 # Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]
+<<<<<<< HEAD
+=======
+
+CHECKPOINT_PATH=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --checkpoint|--checkpoint-path)
+      if [[ $# -lt 2 || -z "${2:-}" ]]; then
+        echo "Error: --checkpoint requires a non-empty path argument." >&2
+        exit 2
+      fi
+      CHECKPOINT_PATH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      echo "Usage: bash run_in_container.sh [--checkpoint /path/to/global_step_XXX]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+>>>>>>> upstream/vista
 
 CHECKPOINT_PATH=""
 while [[ $# -gt 0 ]]; do
@@ -45,7 +70,11 @@ export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.
 # export BASE_MODEL='meta-llama/Llama-3.2-1B-Instruct'
 # export EXPERIMENT_NAME=amazon-search-r1-grpo-llama-3.2-1b-data-new-4
 export BASE_MODEL='Qwen/Qwen3-1.7B'
+<<<<<<< HEAD
 export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
+=======
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-mt4-3072-rerun
+>>>>>>> upstream/vista
 # export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
 # export EXPERIMENT_NAME=nq-search-r1-grpo-qwen2.5-3b-it-em
 # export BASE_MODEL='Qwen/Qwen2.5-7B'
@@ -137,7 +166,14 @@ singularity exec --nv \
         trainer.project_name=$WAND_PROJECT \
         trainer.experiment_name=$EXPERIMENT_NAME \
         trainer.total_epochs=35 \
+<<<<<<< HEAD
         trainer.default_local_dir=/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME \
         actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
         "${extra_overrides[@]}" \
     2>&1 | tee $EXPERIMENT_NAME.log
+=======
+        trainer.default_local_dir=/scratch/09585/shijunli4527/verl/$EXPERIMENT_NAME \
+        actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
+        "${extra_overrides[@]}" \
+    2>&1 | tee $EXPERIMENT_NAME.log
+>>>>>>> upstream/vista

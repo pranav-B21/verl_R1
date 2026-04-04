@@ -3,7 +3,11 @@
 #SBATCH -p gh
 #SBATCH -N 2                # two nodes, one GPU each
 #SBATCH -n 2
+<<<<<<< HEAD
 #SBATCH -t 10:00:00        #changed this for 10 hrs
+=======
+#SBATCH -t 28:00:00
+>>>>>>> upstream/vista
 #SBATCH -o output_dual_gpu.log
 
 # Vista nodes are single-GPU; this script uses two nodes: one for the retriever, one for training.
@@ -25,7 +29,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+<<<<<<< HEAD
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
+=======
+PROJECT_DIR="/work/09585/shijunli4527/vista/Project/verl_R1"
+>>>>>>> upstream/vista
 CONFIG_FILE="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml"
 CONFIG_BACKUP=$(mktemp)
 cp "$CONFIG_FILE" "$CONFIG_BACKUP"
@@ -34,7 +42,11 @@ MAX_RETRIEVER_RESTARTS="${MAX_RETRIEVER_RESTARTS:-3}"
 RETRIEVER_STARTUP_TIMEOUT_S="${RETRIEVER_STARTUP_TIMEOUT_S:-180}"
 
 # Optional: set this to resume training from a specific checkpoint folder like ".../global_step_500".
+<<<<<<< HEAD
 # /scratch/11138/pranavbelligundu/verl/nq-search-r1-grpo-qwen3-1.7b-mt4/global_step_300
+=======
+# /scratch/09585/shijunli4527/verl/nq-search-r1-grpo-qwen3-1.7b-mt4/global_step_300
+>>>>>>> upstream/vista
 CHECKPOINT_PATH=""
 
 # Enumerate allocated nodes and pin roles
