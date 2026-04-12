@@ -1,15 +1,17 @@
 #!/bin/bash
-set -euo pipefail
+PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
+set -eo pipefail
+cd "$PROJECT_DIR"
 
 # This script evaluates a trained checkpoint for Ablation A (metadata only) inside the Singularity container.
 # Usage: bash test_in_container_ablationA.sh
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 
-# Load required modules
-module reset
-module load nvidia/25.5 cuda/12.9 gcc/15
+# Load required modules (set +u to tolerate unbound vars in module/apptainer scripts)
+set +u
 module load tacc-apptainer
+set -u
 
 # GPU / data locations that will be passed to the container
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
@@ -28,13 +30,12 @@ export VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-XFORMERS}
 export GLIBC_TUNABLES=${GLIBC_TUNABLES:-glibc.rtld.optional_static_tls=2048}
 export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
 
-PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
 # Evaluation specific overrides (customize as needed)
 CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME"}
-CHECKPOINT_STEP=${CHECKPOINT_STEP:-global_step_500} # Accepts "latest", a number, or "global_step_*"
+CHECKPOINT_STEP=${CHECKPOINT_STEP:-"global_step_500"} # Accepts "latest", a number, or "global_step_*"
 FORCE_MERGE=${FORCE_MERGE:-0}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-16}
 EVAL_CATEGORY=${EVAL_CATEGORY:-'../data/amazon_data/CDs_and_Vinyl'}
@@ -82,7 +83,7 @@ echo "Prediction parquet: $GEN_OUTPUT_PARQUET"
 echo "Prediction json: $PRED_JSON"
 echo "Metrics json: $METRICS_JSON"
 
-singularity exec --nv \
+singularity exec --nv --writable-tmpfs \
     --bind /work:/work \
     --env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES \
     --env GLIBC_TUNABLES=$GLIBC_TUNABLES \
@@ -107,6 +108,12 @@ singularity exec --nv \
         set -euo pipefail
         cd "$PROJECT_DIR"
 
+        # ---- FIX: Strip CUDA compat lib from LD_LIBRARY_PATH so host driver (CUDA 13.1) is used ----
+        export LD_LIBRARY_PATH=$(echo "${LD_LIBRARY_PATH:-}" | tr ":" "\n" | grep -v "cuda/compat" | paste -sd ":" -)
+        echo "[DEBUG] LD_LIBRARY_PATH after stripping cuda/compat: $LD_LIBRARY_PATH"
+        echo "[DEBUG] GPU check:" && python3 -c "import torch; print(f\"CUDA available: {torch.cuda.is_available()}, devices: {torch.cuda.device_count()}\")" || echo "[WARN] torch GPU check failed"
+        # ---- END FIX ----
+
         echo "[1/4] Converting checkpoint to HuggingFace format..."
         if [ "$FORCE_MERGE" = "1" ] || [ ! -s "$MERGED_MODEL_DIR/config.json" ]; then
             python3 -m verl.model_merger merge \
@@ -129,17 +136,19 @@ singularity exec --nv \
             model.path="$MERGED_MODEL_DIR" \
             rollout.name=sglang \
             rollout.temperature=1.0 \
-            rollout.top_k=0 \
+            rollout.top_k=1 \
             rollout.top_p=0.95 \
             rollout.prompt_length=3072 \
             rollout.response_length=2048 \
             rollout.tensor_model_parallel_size=1 \
+            +rollout.pipeline_model_parallel_size=1 \
             rollout.gpu_memory_utilization=0.8 \
-            rollout.multi_turn.enable=True \
-            rollout.multi_turn.max_assistant_turns=2 \
-            rollout.multi_turn.format=qwen \
-            rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
-            rollout.multi_turn.use_inference_chat_template=True
+            +rollout.multi_turn._target_=verl.workers.config.MultiTurnConfig \
+            +rollout.multi_turn.enable=True \
+            +rollout.multi_turn.max_assistant_turns=2 \
+            +rollout.multi_turn.format=qwen \
+            +rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
+            +rollout.multi_turn.use_inference_chat_template=True
 
         echo "[3/4] Converting parquet outputs to eval.json format..."
         python3 - <<'"'"'PY'"'"'

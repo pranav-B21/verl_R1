@@ -1,15 +1,15 @@
 #!/bin/bash
-set -euo pipefail
+set -eo pipefail
 
 # This script evaluates a trained checkpoint for Ablation B (interaction only) inside the Singularity container.
 # Usage: bash test_in_container_ablationB.sh
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 
-# Load required modules
-module reset
-module load nvidia/25.5 cuda/12.9 gcc/15
+# Load required modules (set +u to tolerate unbound vars in module/apptainer scripts)
+set +u
 module load tacc-apptainer
+set -u
 
 # GPU / data locations that will be passed to the container
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
@@ -82,7 +82,7 @@ echo "Prediction parquet: $GEN_OUTPUT_PARQUET"
 echo "Prediction json: $PRED_JSON"
 echo "Metrics json: $METRICS_JSON"
 
-singularity exec --nv \
+singularity exec --nv --writable-tmpfs \
     --bind /work:/work \
     --env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES \
     --env GLIBC_TUNABLES=$GLIBC_TUNABLES \
@@ -135,11 +135,12 @@ singularity exec --nv \
             rollout.response_length=2048 \
             rollout.tensor_model_parallel_size=1 \
             rollout.gpu_memory_utilization=0.8 \
-            rollout.multi_turn.enable=True \
-            rollout.multi_turn.max_assistant_turns=2 \
-            rollout.multi_turn.format=qwen \
-            rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
-            rollout.multi_turn.use_inference_chat_template=True
+            +rollout.multi_turn._target_=verl.workers.config.MultiTurnConfig \
+            +rollout.multi_turn.enable=True \
+            +rollout.multi_turn.max_assistant_turns=2 \
+            +rollout.multi_turn.format=qwen \
+            +rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
+            +rollout.multi_turn.use_inference_chat_template=True
 
         echo "[3/4] Converting parquet outputs to eval.json format..."
         python3 - <<'"'"'PY'"'"'
