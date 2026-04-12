@@ -203,14 +203,13 @@ class BM25Retriever(BaseRetriever):
         else:
             return results
 
-
+"CHANGES MADE HERE"
 class DenseRetriever(BaseRetriever):
     def __init__(self, config):
         super().__init__(config)
         self.index = faiss.read_index(self.index_path)
         self.gpu_resources = None  # Keep GPU resources alive to prevent GC
         if config.faiss_gpu:
-<<<<<<< HEAD
             # Create GPU resources with no temporary memory to avoid stack allocator issues
             # The stack allocator requires LIFO deallocation order which can be violated
             # when the encoder model and FAISS operations interleave on GPU
@@ -228,11 +227,6 @@ class DenseRetriever(BaseRetriever):
             co.useFloat16 = True
             co.shard = True
             self.index = faiss.index_cpu_to_gpu_multiple_py(self.gpu_resources, self.index, co, gpus)
-=======
-            gpu_resources = faiss.StandardGpuResources()
-            gpu_resources.noTempMemory()
-            self.index = faiss.index_cpu_to_gpu(gpu_resources, 0, self.index)
->>>>>>> upstream/vista
 
         self.corpus = load_corpus(self.corpus_path)
         self.encoder = Encoder(

@@ -1,5 +1,7 @@
 #!/bin/bash
+PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 set -eo pipefail
+cd "$PROJECT_DIR"
 
 # This script evaluates a trained checkpoint for Ablation B (interaction only) inside the Singularity container.
 # Usage: bash test_in_container_ablationB.sh
@@ -28,13 +30,12 @@ export VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-XFORMERS}
 export GLIBC_TUNABLES=${GLIBC_TUNABLES:-glibc.rtld.optional_static_tls=2048}
 export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
 
-PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
 # Evaluation specific overrides (customize as needed)
 CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME"}
-CHECKPOINT_STEP=${CHECKPOINT_STEP:-global_step_350} # Accepts "latest", a number, or "global_step_*"
+CHECKPOINT_STEP=${CHECKPOINT_STEP:-"global_step_350"} # Accepts "latest", a number, or "global_step_*"
 FORCE_MERGE=${FORCE_MERGE:-0}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-16}
 EVAL_CATEGORY=${EVAL_CATEGORY:-'../data/amazon_data/CDs_and_Vinyl'}
@@ -107,6 +108,12 @@ singularity exec --nv --writable-tmpfs \
         set -euo pipefail
         cd "$PROJECT_DIR"
 
+        # ---- FIX: Strip CUDA compat lib from LD_LIBRARY_PATH so host driver (CUDA 13.1) is used ----
+        export LD_LIBRARY_PATH=$(echo "${LD_LIBRARY_PATH:-}" | tr ":" "\n" | grep -v "cuda/compat" | paste -sd ":" -)
+        echo "[DEBUG] LD_LIBRARY_PATH after stripping cuda/compat: $LD_LIBRARY_PATH"
+        echo "[DEBUG] GPU check:" && python3 -c "import torch; print(f\"CUDA available: {torch.cuda.is_available()}, devices: {torch.cuda.device_count()}\")" || echo "[WARN] torch GPU check failed"
+        # ---- END FIX ----
+
         echo "[1/4] Converting checkpoint to HuggingFace format..."
         if [ "$FORCE_MERGE" = "1" ] || [ ! -s "$MERGED_MODEL_DIR/config.json" ]; then
             python3 -m verl.model_merger merge \
@@ -129,11 +136,12 @@ singularity exec --nv --writable-tmpfs \
             model.path="$MERGED_MODEL_DIR" \
             rollout.name=sglang \
             rollout.temperature=1.0 \
-            rollout.top_k=0 \
+            rollout.top_k=1 \
             rollout.top_p=0.95 \
             rollout.prompt_length=3072 \
             rollout.response_length=2048 \
             rollout.tensor_model_parallel_size=1 \
+            +rollout.pipeline_model_parallel_size=1 \
             rollout.gpu_memory_utilization=0.8 \
             +rollout.multi_turn._target_=verl.workers.config.MultiTurnConfig \
             +rollout.multi_turn.enable=True \
