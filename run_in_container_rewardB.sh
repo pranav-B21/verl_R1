@@ -49,7 +49,7 @@ export TEST_DATA_DIR='./data/amazon_data'
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-global_step_1150
 
 export WAND_PROJECT='Search-R1-CF'
 export VLLM_ATTENTION_BACKEND=XFORMERS
@@ -84,7 +84,10 @@ singularity exec --nv \
     --env REWARD_B_BETA=$REWARD_B_BETA \
     --pwd $PROJECT_DIR \
     sglang_25.10-py3-tls-fixed.sif \
-    python3 -m verl.trainer.main_ppo \
+    bash -c \
+    'export LD_LIBRARY_PATH=$(echo "${LD_LIBRARY_PATH:-}" | tr ":" "\n" | grep -v "cuda/compat" | paste -sd ":" -) && exec python3 "$@"' \
+    -- \
+    -m verl.trainer.main_ppo \
         --config-path=$PROJECT_DIR/examples/sglang_multiturn/config \
         --config-name=search_multiturn_grpo \
         data.train_files=$TRAIN_DATA_DIR/train.parquet \
@@ -123,8 +126,9 @@ singularity exec --nv \
         trainer.test_freq=50 \
         trainer.project_name=$WAND_PROJECT \
         trainer.experiment_name=$EXPERIMENT_NAME \
-        trainer.total_epochs=35 \
+        trainer.total_epochs=22 \
         trainer.default_local_dir=/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME \
         actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
-        "${extra_overrides[@]}" \
+        "${extra_overrides[@]}"
+' \
     2>&1 | tee $EXPERIMENT_NAME.log

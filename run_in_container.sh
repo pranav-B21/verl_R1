@@ -97,7 +97,10 @@ singularity exec --nv \
     --env VLLM_ATTENTION_BACKEND=$VLLM_ATTENTION_BACKEND \
     --pwd $PROJECT_DIR \
     sglang_25.10-py3-tls-fixed.sif \
-    python3 -m verl.trainer.main_ppo \
+    bash -c \
+    'export LD_LIBRARY_PATH=$(echo "${LD_LIBRARY_PATH:-}" | tr ":" "\n" | grep -v "cuda/compat" | paste -sd ":" -) && exec python3 "$@"' \
+    -- \
+    -m verl.trainer.main_ppo \
         --config-path=$PROJECT_DIR/examples/sglang_multiturn/config \
         --config-name=search_multiturn_grpo \
         data.train_files=$TRAIN_DATA_DIR/train.parquet \

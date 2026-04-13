@@ -96,7 +96,10 @@ singularity exec --nv \
     --env VLLM_ATTENTION_BACKEND=$VLLM_ATTENTION_BACKEND \
     --pwd $PROJECT_DIR \
     sglang_25.10-py3-tls-fixed.sif \
-    python3 -m verl.trainer.main_ppo \
+    bash -c \
+    'export LD_LIBRARY_PATH=$(echo "${LD_LIBRARY_PATH:-}" | tr ":" "\n" | grep -v "cuda/compat" | paste -sd ":" -) && exec python3 "$@"' \
+    -- \
+    -m verl.trainer.main_ppo \
         --config-path=$PROJECT_DIR/examples/sglang_multiturn/config \
         --config-name=search_multiturn_grpo \
         data.train_files=$TRAIN_DATA_DIR/train.parquet \
@@ -138,5 +141,6 @@ singularity exec --nv \
         trainer.total_epochs=30 \
         trainer.default_local_dir=/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME \
         actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
-        "${extra_overrides[@]}" \
+        "${extra_overrides[@]}"
+' \
     2>&1 | tee $EXPERIMENT_NAME.log

@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p gh
+#SBATCH -A ASC26032
 #SBATCH -N 2                # two nodes, one GPU each
 #SBATCH -n 2
 #SBATCH -t 24:00:00
@@ -42,9 +43,9 @@ cp "$CONFIG_FILE" "$CONFIG_BACKUP"
 MAX_RETRIEVER_RESTARTS="${MAX_RETRIEVER_RESTARTS:-3}"
 RETRIEVER_STARTUP_TIMEOUT_S="${RETRIEVER_STARTUP_TIMEOUT_S:-180}"
 
-# To resume from a checkpoint, set this to a path like:
-#   /scratch/11138/pranavbelligundu/verl/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB/global_step_300
-CHECKPOINT_PATH=""
+# Resume from shared baseline checkpoint at step 1150
+# (73 steps/epoch; step 1150 ≈ epoch 15.75 → +6 epochs = total_epochs 22)
+CHECKPOINT_PATH="/work/09585/shijunli4527/mysharedirectory/amazon_checkpoint/global_step_1150"
 
 nodes=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))
 retriever_host="${nodes[0]}"

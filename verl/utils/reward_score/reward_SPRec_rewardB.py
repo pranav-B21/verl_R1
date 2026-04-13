@@ -1,6 +1,8 @@
 """
+B. REDUNDANCY PENALITY
+
 Combined reward for Part B ablation: R_total = R_answer + lambda * R_think
-where R_think = -beta * redundancy  (Part B only; A and C are TODO).
+where R_think = -beta * redundancy 
 
 Activated by setting USE_REWARD_B=1 in the container environment.
 Routed from __init__.py's default_compute_score for amazon/goodreads data sources.

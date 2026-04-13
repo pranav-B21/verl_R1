@@ -109,6 +109,8 @@ singularity exec --nv \
     sglang_25.10-py3-tls-fixed.sif \
     bash -c '
         set -euo pipefail
+        # Strip cuda/compat from LD_LIBRARY_PATH: container CUDA compat libs conflict with host driver (Error 803)
+        export LD_LIBRARY_PATH=$(echo "${LD_LIBRARY_PATH:-}" | tr ":" "\n" | grep -v "cuda/compat" | paste -sd ":" -)
         cd "$PROJECT_DIR"
 
         echo "[1/4] Converting checkpoint to HuggingFace format..."

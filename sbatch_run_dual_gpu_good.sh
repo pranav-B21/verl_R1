@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p gh
+#SBATCH -A ASC26032
 #SBATCH -N 2                # two nodes, one GPU each
 #SBATCH -n 2
 #SBATCH -t 10:00:00        #changed this for 10 hrs
