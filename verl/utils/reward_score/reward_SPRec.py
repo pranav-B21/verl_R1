@@ -111,8 +111,4 @@ def similarity_match(solution_str, ground_truth, data_source):
 
 def compute_score(solution_str, ground_truth, data_source, method='strict', format_score=0., score=1.):
     match_score = similarity_match(solution_str, ground_truth, data_source)
-<<<<<<< HEAD
     return match_score
-=======
-    return match_score
->>>>>>> upstream/vista
