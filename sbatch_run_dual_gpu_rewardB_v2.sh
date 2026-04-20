@@ -5,18 +5,21 @@
 #SBATCH -N 2                # two nodes, one GPU each
 #SBATCH -n 2
 #SBATCH -t 24:00:00
-#SBATCH -o output_dual_gpu_rewardB.log
+#SBATCH -o output_dual_gpu_rewardB_v2.log
 
-# Reward B ablation: R_total = R_answer - lambda * beta * redundancy
-# Same dual-node layout as sbatch_run_dual_gpu.sh:
-#   node[0] → retriever (same retrieval_launch.sh — data unchanged)
-#   node[1] → training  (run_in_container_rewardB.sh, USE_REWARD_B=1)
+# Reward B v2: corrects two bugs from v1 that caused redundancy to always be 0:
+#   Bug 1 — prompt_str not passed to reward: naive.py now adds prompt_str to extra_info,
+#            threaded through __init__.py → reward_SPRec_rewardB → reward_SPRec_reasoning
+#   Bug 2 — wrong search result tag: _extract_info_blocks now handles <tool_response>
+#            (the actual verl multiturn format) in addition to <info>
 #
-# Submit: sbatch sbatch_run_dual_gpu_rewardB.sh
-# Monitor: tail -f output_dual_gpu_rewardB.log
-#          tail -f nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB.log
+# Training from scratch (no checkpoint) per hypothesis that the model needs
+# fresh learning signals to adapt to the new reward scope.
+#
+# Submit: sbatch sbatch_run_dual_gpu_rewardB_v2.sh
+# Monitor: tail -f output_dual_gpu_rewardB_v2.log
+#          tail -f nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-v2.log
 # WandB:   compare against nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
-#           in project Search-R1-CF
 
 source ~/.bashrc
 
@@ -118,9 +121,8 @@ if ! wait_for_retriever_ready; then
   exit "${status:-1}"
 fi
 
-# Only difference from sbatch_run_dual_gpu.sh: calls run_in_container_rewardB.sh
 srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive --chdir="${PROJECT_DIR}" \
-  bash run_in_container_rewardB.sh &
+  bash run_in_container_rewardB_v2.sh &
 training_pid=$!
 
 while true; do
@@ -145,6 +147,6 @@ while true; do
       exit "${final_status:-1}"
     fi
   fi
-_
+
   sleep 5
 done

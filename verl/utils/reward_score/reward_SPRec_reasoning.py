@@ -86,8 +86,9 @@ def _extract_think_blocks(solution_str: str) -> List[str]:
 
 
 def _extract_info_blocks(solution_str: str) -> List[str]:
-    """Return all <info>...</info> search result contents."""
+    """Return all <info> or <tool_response> search result contents."""
     matches = re.findall(r'<info>(.*?)</info>', solution_str, re.DOTALL)
+    matches += re.findall(r'<tool_response>(.*?)</tool_response>', solution_str, re.DOTALL)
     return [m.strip() for m in matches if m.strip()]
 
 
@@ -247,6 +248,7 @@ def compute_redundancy_penalty(
     prompt_sim_threshold: float = 0.8,
     search_sim_threshold: float = 0.7,
     floor_threshold: float = 0.3,
+    extra_info: dict = None,
 ) -> float:
     """
     Compute the redundancy penalty for a single rollout.
@@ -256,18 +258,23 @@ def compute_redundancy_penalty(
       1.0 = heavy copying / parroting
 
     Args:
-        solution_str:          Full model output (contains <think>, <info>, <answer> etc.)
+        solution_str:          Model response (may or may not include prompt prefix)
         data_source:           Dataset identifier ("amazon" or "goodreads")
         prompt_sim_threshold:  Cosine sim threshold for prompt copying (default 0.8)
         search_sim_threshold:  Cosine sim threshold for search result copying (default 0.7)
         floor_threshold:       Raw redundancy below this → 0 penalty (default 0.3)
+        extra_info:            Optional dict; uses extra_info["prompt_str"] if available
     """
     think_blocks = _extract_think_blocks(solution_str)
     if not think_blocks:
         return 0.0  # No thinking → nothing to penalize
 
     think_text = ' '.join(think_blocks)
-    prompt_text = _extract_prompt_text(solution_str)
+    # Prefer explicit prompt_str from extra_info (more reliable than extraction)
+    if extra_info and extra_info.get("prompt_str"):
+        prompt_text = extra_info["prompt_str"]
+    else:
+        prompt_text = _extract_prompt_text(solution_str)
     search_text = ' '.join(_extract_info_blocks(solution_str))
 
     if not prompt_text and not search_text:
@@ -343,7 +350,7 @@ def compute_redundancy_penalty(
 
 def compute_score(solution_str: str, ground_truth: dict, data_source: str,
                   method: str = 'strict', format_score: float = 0.,
-                  score: float = 1.) -> float:
+                  score: float = 1., extra_info: dict = None) -> float:
     """
     verl-compatible entry point. Signature matches reward_SPRec.compute_score.
 
@@ -354,7 +361,7 @@ def compute_score(solution_str: str, ground_truth: dict, data_source: str,
     """
     do_print = random.randint(1, 64) == 1
 
-    penalty = compute_redundancy_penalty(solution_str, data_source)
+    penalty = compute_redundancy_penalty(solution_str, data_source, extra_info=extra_info)
 
     if do_print:
         think_blocks = _extract_think_blocks(solution_str)

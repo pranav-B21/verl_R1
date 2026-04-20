@@ -106,7 +106,7 @@ def default_compute_score(
         import os
         if os.environ.get("USE_REWARD_B", "0") == "1":
             from . import reward_SPRec_rewardB
-            res = reward_SPRec_rewardB.compute_score(solution_str, ground_truth, data_source)
+            res = reward_SPRec_rewardB.compute_score(solution_str, ground_truth, data_source, extra_info=extra_info)
         else:
             from . import reward_SPRec
             res = reward_SPRec.compute_score(solution_str, ground_truth, data_source)

@@ -1,17 +1,16 @@
 #!/bin/bash
 
-# Reward B ablation: R_total = R_answer - lambda * beta * redundancy
-# Identical to run_in_container.sh except:
-#   - EXPERIMENT_NAME  → distinct WandB run for comparison with baseline
-#   - USE_REWARD_B=1   → routes amazon data to reward_SPRec_rewardB.compute_score
-#   - REWARD_B_LAMBDA  → tunable; default 0.3 (set here to make it explicit)
-#   - REWARD_B_BETA    → tunable; default 1.0
+# Reward B v2: fixes two bugs that caused redundancy penalty to always be 0:
+#   1. prompt_str now threaded via extra_info (naive.py → __init__.py → rewardB → reasoning)
+#   2. _extract_info_blocks now handles <tool_response> (actual format) in addition to <info>
 #
-# To compare against baseline in WandB, open both runs in the same chart:
-#   Baseline:  nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
-#   This run:  nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB
+# Training from scratch (BASE_MODEL = Qwen/Qwen3-1.7B) per your hypothesis that
+# the checkpoint-initialized run couldn't adapt to the new reward scope.
 #
-# Usage: bash run_in_container_rewardB.sh
+# Compare in WandB:
+#   Baseline:        nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
+#   RewardB-scratch: nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-scratch
+#   This run (v2):   nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-v2
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 
@@ -26,18 +25,14 @@ export TEST_DATA_DIR='./data/amazon_data'
 
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
-# Use the step-1150 fine-tuned HF weights as the starting model
-export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-scratch
+export BASE_MODEL='/work/09585/shijunli4527/mysharedirectory/amazon_checkpoint/global_step_1150'
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-v2
 
 export WAND_PROJECT='Search-R1-CF'
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export GLIBC_TUNABLES=glibc.rtld.optional_static_tls=2048
 export TOKENIZERS_PARALLELISM=false
 
-# --- Reward B switches ---
-# USE_REWARD_B=1 activates reward_SPRec_rewardB.compute_score in __init__.py
-# Tune REWARD_B_LAMBDA / REWARD_B_BETA here for hyperparameter sweeps.
 export USE_REWARD_B=1
 export REWARD_B_LAMBDA=0.3
 export REWARD_B_BETA=1.0

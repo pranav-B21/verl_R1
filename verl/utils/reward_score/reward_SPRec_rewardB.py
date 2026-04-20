@@ -37,6 +37,7 @@ def compute_score(
     method: str = "strict",
     format_score: float = 0.0,
     score: float = 1.0,
+    extra_info: dict = None,
 ) -> float:
     """
     Drop-in replacement for reward_SPRec.compute_score with redundancy penalty.
@@ -57,7 +58,7 @@ def compute_score(
     # ------------------------------------------------------------------ #
     from . import reward_SPRec_reasoning
     redundancy = reward_SPRec_reasoning.compute_score(
-        solution_str, ground_truth, data_source,
+        solution_str, ground_truth, data_source, extra_info=extra_info,
     )
 
     # ------------------------------------------------------------------ #
