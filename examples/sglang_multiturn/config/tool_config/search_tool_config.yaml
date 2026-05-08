@@ -1,7 +1,7 @@
 tools:
   - class_name: verl.tools.search_tool.SearchTool
     config:
-      retrieval_service_url: "http://c642-031:8000/retrieve"
+      retrieval_service_url: http://c642-091:8000/retrieve
       num_workers: 120
       rate_limit: 120
       timeout: 30

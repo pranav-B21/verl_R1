@@ -30,8 +30,8 @@ export TEST_DATA_DIR=${TEST_DATA_DIR:-'./data/amazon_data'}
 
 export SSL_CERT_FILE=${SSL_CERT_FILE:-/work/11138/pranavbelligundu/vista/Software/cacert.pem}
 
-export BASE_MODEL=${BASE_MODEL:-'/work/09585/shijunli4527/mysharedirectory/amazon_checkpoint/global_step_1150'}
-export EXPERIMENT_NAME=${EXPERIMENT_NAME:-nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-global_step_1150}
+export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen3-1.7B'}
+export EXPERIMENT_NAME=${EXPERIMENT_NAME:-nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-scratch}
 export WAND_PROJECT=${WAND_PROJECT:-'Search-R1-CF'}
 
 export VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-XFORMERS}
@@ -43,7 +43,7 @@ TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
 # ---- Checkpoint resolution ----
 CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME"}
-CHECKPOINT_STEP=${CHECKPOINT_STEP:-"200"}      # "latest", a number, or "global_step_*"
+CHECKPOINT_STEP=${CHECKPOINT_STEP:-"350"}      # "latest", a number, or "global_step_*"
 FORCE_MERGE=${FORCE_MERGE:-0}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-16}
 EVAL_CATEGORY=${EVAL_CATEGORY:-'CDs_and_Vinyl'}

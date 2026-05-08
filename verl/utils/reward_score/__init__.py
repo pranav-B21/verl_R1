@@ -104,9 +104,9 @@ def default_compute_score(
     
     elif ("amazon" in data_source or "goodreads" in data_source or "movie" in data_source):
         import os
-        if os.environ.get("USE_REWARD_B", "0") == "1":
-            from . import reward_SPRec_rewardB
-            res = reward_SPRec_rewardB.compute_score(solution_str, ground_truth, data_source, extra_info=extra_info)
+        if os.environ.get("USE_RTHINK", "0") == "1" or os.environ.get("USE_REWARD_B", "0") == "1":
+            from . import reward_SPRec_rthink
+            res = reward_SPRec_rthink.compute_score(solution_str, ground_truth, data_source, extra_info=extra_info)
         else:
             from . import reward_SPRec
             res = reward_SPRec.compute_score(solution_str, ground_truth, data_source)

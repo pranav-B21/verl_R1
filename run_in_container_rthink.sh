@@ -1,16 +1,13 @@
 #!/bin/bash
 
-# Reward B ablation: R_total = R_answer - lambda * beta * redundancy
-# Identical to run_in_container.sh except:
-#   - EXPERIMENT_NAME  → distinct WandB run for comparison with baseline
-#   - USE_REWARD_B=1   → routes amazon data to reward_SPRec_rewardB.compute_score
-#   - REWARD_B_LAMBDA  → tunable; default 0.3 (set here to make it explicit)
-#   - REWARD_B_BETA    → tunable; default 1.0
+# Full reasoning reward: R_total = R_answer + lambda * R_think
+#   R_think = alpha * info_gain - beta * redundancy + gamma * exploration_bonus
+# Routes amazon data to reward_SPRec_rthink.compute_score via USE_RTHINK=1.
 #
-# Resumes automatically from the latest checkpoint in trainer.default_local_dir
-# (currently global_step_200). To start fresh, delete that directory first.
-#
-# Usage: bash run_in_container_rewardB.sh
+# Compare in WandB:
+#   Baseline:        nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
+#   RewardB-v2:      nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-v2
+#   This run:        nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 
@@ -25,20 +22,20 @@ export TEST_DATA_DIR='./data/amazon_data'
 
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
-# Base model is used for tokenizer and initial architecture reference.
-# resume_mode=auto will override weights with the step-200 checkpoint automatically.
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-scratch
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink
 
 export WAND_PROJECT='Search-R1-CF'
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export GLIBC_TUNABLES=glibc.rtld.optional_static_tls=2048
 export TOKENIZERS_PARALLELISM=false
 
-# --- Reward B switches ---
-export USE_REWARD_B=1
-export REWARD_B_LAMBDA=0.3
-export REWARD_B_BETA=1.0
+# --- Rthink reward switches ---
+export USE_RTHINK=1
+export RTHINK_LAMBDA=0.3   # weight of R_think in R_total
+export RTHINK_ALPHA=0.5    # info_gain weight
+export RTHINK_BETA=1.0     # redundancy weight
+export RTHINK_GAMMA=0.3    # exploration_bonus weight
 
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
@@ -51,9 +48,11 @@ singularity exec --nv \
     --env GLIBC_TUNABLES=$GLIBC_TUNABLES \
     --env TOKENIZERS_PARALLELISM=$TOKENIZERS_PARALLELISM \
     --env VLLM_ATTENTION_BACKEND=$VLLM_ATTENTION_BACKEND \
-    --env USE_REWARD_B=$USE_REWARD_B \
-    --env REWARD_B_LAMBDA=$REWARD_B_LAMBDA \
-    --env REWARD_B_BETA=$REWARD_B_BETA \
+    --env USE_RTHINK=$USE_RTHINK \
+    --env RTHINK_LAMBDA=$RTHINK_LAMBDA \
+    --env RTHINK_ALPHA=$RTHINK_ALPHA \
+    --env RTHINK_BETA=$RTHINK_BETA \
+    --env RTHINK_GAMMA=$RTHINK_GAMMA \
     --pwd $PROJECT_DIR \
     sglang_25.10-py3-tls-fixed.sif \
     bash -c \
@@ -99,8 +98,7 @@ singularity exec --nv \
         trainer.test_freq=50 \
         trainer.project_name=$WAND_PROJECT \
         trainer.experiment_name=$EXPERIMENT_NAME \
-        trainer.total_epochs=10 \
-        trainer.resume_mode=auto \
+        trainer.total_epochs=22 \
         trainer.default_local_dir=/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME \
         actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
     2>&1 | tee $EXPERIMENT_NAME.log
