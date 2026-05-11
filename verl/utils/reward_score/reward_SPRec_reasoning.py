@@ -351,7 +351,9 @@ def compute_redundancy_penalty(
     if not ref:
         raw = tier0
     else:
-        tier1 = _tier1_substring_match(ts, ref)
+        # Tier 1 checks only against the prompt, not search results.
+        # Referencing retrieved CF docs in reasoning is expected, not copying.
+        tier1 = _tier1_substring_match(ts, ps) if ps else 0.0
         if tier1 >= 1.0:
             return 1.0
         tier2 = _tier2_ngram_overlap(ts, ref)

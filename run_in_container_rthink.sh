@@ -34,7 +34,7 @@ export TOKENIZERS_PARALLELISM=false
 export USE_RTHINK=1
 export RTHINK_LAMBDA=0.3   # weight of R_think in R_total
 export RTHINK_ALPHA=0.5    # info_gain weight
-export RTHINK_BETA=1.0     # redundancy weight
+export RTHINK_BETA=0.5     # redundancy weight
 export RTHINK_GAMMA=0.3    # exploration_bonus weight
 
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
