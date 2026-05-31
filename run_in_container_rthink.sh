@@ -23,7 +23,7 @@ export TEST_DATA_DIR='./data/amazon_data'
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-test
 
 export WAND_PROJECT='Search-R1-CF'
 export VLLM_ATTENTION_BACKEND=XFORMERS
@@ -44,6 +44,7 @@ TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 singularity exec --nv \
     --bind /work:/work \
     --bind /scratch:/scratch \
+    --bind $PROJECT_DIR/overrides/patch_torch.py:/usr/local/lib/python3.12/dist-packages/sglang/srt/patch_torch.py \
     --env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES \
     --env GLIBC_TUNABLES=$GLIBC_TUNABLES \
     --env TOKENIZERS_PARALLELISM=$TOKENIZERS_PARALLELISM \
@@ -66,7 +67,7 @@ singularity exec --nv \
         data.train_batch_size=56 \
         data.val_batch_size=40 \
         data.max_prompt_length=1024 \
-        data.max_response_length=3072 \
+        data.max_response_length=2048 \
         algorithm.adv_estimator=grpo \
         actor_rollout_ref.model.path=$BASE_MODEL \
         actor_rollout_ref.model.tokenizer_path=$BASE_MODEL \
@@ -82,7 +83,7 @@ singularity exec --nv \
         actor_rollout_ref.rollout.log_prob_micro_batch_size=8 \
         actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
         actor_rollout_ref.rollout.name=sglang \
-        actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+        actor_rollout_ref.rollout.gpu_memory_utilization=0.65 \
         actor_rollout_ref.ref.log_prob_micro_batch_size=8 \
         actor_rollout_ref.ref.fsdp_config.param_offload=True \
         actor_rollout_ref.actor.kl_loss_coef=0.001 \
