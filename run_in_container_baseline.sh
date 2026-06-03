@@ -1,21 +1,24 @@
 #!/bin/bash
 
-# Full reasoning reward: R_total = R_answer + lambda * R_think
-#   R_think = alpha * info_gain - beta * redundancy + gamma * exploration_bonus
-# Routes amazon data to reward_SPRec_rthink.compute_score via USE_RTHINK=1.
+# OUTCOME-ONLY BASELINE (no reasoning reward).
+# Reward = R_answer only, via reward_SPRec.compute_score.
+# With USE_RTHINK=0 and USE_REWARD_B=0, reward_score/__init__.py routes amazon
+# data to the old reward_SPRec (outcome-based embedding-rank reward) — the exact
+# reference for comparing the rthink / rewardB reasoning-reward runs.
 #
-# Compare in WandB:
-#   Baseline:        nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
-#   RewardB-v2:      nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-v2
-#   This run:        nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v2
+# Apples-to-apples with rthink-v2: identical BASE_MODEL, data, and GRPO config;
+# the ONLY difference is the reward function.
+#
+# Compare in WandB (project Search-R1-CF), metric val-core/amazon_test/reward/mean@1:
+#   This run (baseline): nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-v2
+#   RewardB-v2:          nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-v2
+#   Rthink-v2:           nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v2
 #
 # Resume behaviour (auto by default):
-#   - Leave CHECKPOINT_PATH unset → resume_mode=auto picks the latest checkpoint
+#   - Leave CHECKPOINT_PATH unset → resume_mode=auto. For a brand-new run this
+#     starts fresh from BASE_MODEL; on a re-launch it picks the latest checkpoint
 #     from trainer.default_local_dir automatically.
 #   - Set CHECKPOINT_PATH=/path/to/global_step_NNN to resume from a specific step.
-#     Example:
-#       CHECKPOINT_PATH=/scratch/11138/pranavbelligundu/verl/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v2/global_step_250 \
-#         sbatch sbatch_run_dual_gpu_rthink.sh
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 
@@ -31,19 +34,16 @@ export TEST_DATA_DIR='./data/amazon_data'
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v2
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-v2
 
 export WAND_PROJECT='Search-R1-CF'
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export GLIBC_TUNABLES=glibc.rtld.optional_static_tls=2048
 export TOKENIZERS_PARALLELISM=false
 
-# --- Rthink reward switches ---
-export USE_RTHINK=1
-export RTHINK_LAMBDA=0.3   # weight of R_think in R_total
-export RTHINK_ALPHA=0.5    # info_gain weight
-export RTHINK_BETA=0.5     # redundancy weight
-export RTHINK_GAMMA=0.3    # exploration_bonus weight
+# --- Reward switches: reasoning reward OFF (outcome-only baseline) ---
+export USE_RTHINK=0
+export USE_REWARD_B=0
 
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
@@ -69,10 +69,7 @@ singularity exec --nv \
     --env TOKENIZERS_PARALLELISM=$TOKENIZERS_PARALLELISM \
     --env VLLM_ATTENTION_BACKEND=$VLLM_ATTENTION_BACKEND \
     --env USE_RTHINK=$USE_RTHINK \
-    --env RTHINK_LAMBDA=$RTHINK_LAMBDA \
-    --env RTHINK_ALPHA=$RTHINK_ALPHA \
-    --env RTHINK_BETA=$RTHINK_BETA \
-    --env RTHINK_GAMMA=$RTHINK_GAMMA \
+    --env USE_REWARD_B=$USE_REWARD_B \
     --pwd $PROJECT_DIR \
     sglang_25.10-py3-tls-fixed.sif \
     bash -c \
@@ -111,7 +108,7 @@ singularity exec --nv \
         actor_rollout_ref.rollout.multi_turn.max_assistant_turns=4 \
         trainer.logger=['wandb'] \
         trainer.val_only=false \
-        trainer.val_before_train=false \
+        trainer.val_before_train=true \
         trainer.n_gpus_per_node=1 \
         trainer.nnodes=1 \
         trainer.save_freq=50 \
