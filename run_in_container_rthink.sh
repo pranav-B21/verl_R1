@@ -1,8 +1,15 @@
 #!/bin/bash
 
-# Full reasoning reward: R_total = R_answer + lambda * R_think
-#   R_think = alpha * info_gain - beta * redundancy + gamma * exploration_bonus
-# Routes amazon data to reward_SPRec_rthink.compute_score via USE_RTHINK=1.
+# Reasoning reward: R_total = R_answer + shaping(R_think).
+# USE_RTHINK=1 routes amazon data to the versioned reasoning-reward dispatcher
+# (verl/utils/reward_score/reward_reasoning/), and RTHINK_MODE selects the
+# iteration:
+#   v3 (default) — evidence-grounded process reward
+#                  R_think_raw = w_tool*tool_use + w_ground*grounding
+#                              + w_synth*synthesis - w_rep*self_rep
+#                  shaping = clip(SCALE*R_think_raw, -CAP, +CAP)
+#   v2 / legacy  — alpha*info_gain - beta*redundancy + gamma*exploration_bonus
+# See verl/utils/reward_score/reward_reasoning/README.md for the rationale.
 #
 # Compare in WandB:
 #   Baseline:        nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
@@ -31,7 +38,10 @@ export TEST_DATA_DIR='./data/amazon_data'
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v2
+# Default to a FRESH v3 experiment (new name => new checkpoint dir => starts from
+# the base model, not a resume of the v2 run). Override with EXPERIMENT_NAME=...
+# before sbatch to resume/rename.
+export EXPERIMENT_NAME=${EXPERIMENT_NAME:-nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v3}
 
 export WAND_PROJECT='Search-R1-CF'
 export VLLM_ATTENTION_BACKEND=XFORMERS
@@ -40,6 +50,17 @@ export TOKENIZERS_PARALLELISM=false
 
 # --- Rthink reward switches ---
 export USE_RTHINK=1
+export RTHINK_MODE=v3      # which reasoning-reward iteration (v3 default | v2/legacy)
+
+# v3 (evidence-grounded process reward) hyperparameters
+export RTHINK_SCALE=0.10   # scale of R_think_raw before clipping
+export RTHINK_CAP=0.08     # absolute cap on applied shaping (keep < 0.1 tier gap)
+export RTHINK_W_TOOL=0.30  # weight of tool_use
+export RTHINK_W_GROUND=0.40 # weight of grounding
+export RTHINK_W_SYNTH=0.30 # weight of synthesis
+export RTHINK_W_REP=0.50   # weight of self_rep penalty
+
+# v2 (legacy) hyperparameters — only used when RTHINK_MODE=v2
 export RTHINK_LAMBDA=0.3   # weight of R_think in R_total
 export RTHINK_ALPHA=0.5    # info_gain weight
 export RTHINK_BETA=0.5     # redundancy weight
@@ -69,6 +90,13 @@ singularity exec --nv \
     --env TOKENIZERS_PARALLELISM=$TOKENIZERS_PARALLELISM \
     --env VLLM_ATTENTION_BACKEND=$VLLM_ATTENTION_BACKEND \
     --env USE_RTHINK=$USE_RTHINK \
+    --env RTHINK_MODE=$RTHINK_MODE \
+    --env RTHINK_SCALE=$RTHINK_SCALE \
+    --env RTHINK_CAP=$RTHINK_CAP \
+    --env RTHINK_W_TOOL=$RTHINK_W_TOOL \
+    --env RTHINK_W_GROUND=$RTHINK_W_GROUND \
+    --env RTHINK_W_SYNTH=$RTHINK_W_SYNTH \
+    --env RTHINK_W_REP=$RTHINK_W_REP \
     --env RTHINK_LAMBDA=$RTHINK_LAMBDA \
     --env RTHINK_ALPHA=$RTHINK_ALPHA \
     --env RTHINK_BETA=$RTHINK_BETA \
@@ -111,7 +139,7 @@ singularity exec --nv \
         actor_rollout_ref.rollout.multi_turn.max_assistant_turns=4 \
         trainer.logger=['wandb'] \
         trainer.val_only=false \
-        trainer.val_before_train=false \
+        trainer.val_before_train=${VAL_BEFORE_TRAIN:-true} \
         trainer.n_gpus_per_node=1 \
         trainer.nnodes=1 \
         trainer.save_freq=50 \

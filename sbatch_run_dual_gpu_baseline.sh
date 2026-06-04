@@ -15,9 +15,9 @@
 #
 # Submit:  sbatch sbatch_run_dual_gpu_baseline.sh
 # Monitor: tail -f output_dual_gpu_baseline.log
-#          tail -f nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-v2.log
+#          tail -f nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline.log
 # WandB:   project Search-R1-CF, metric val-core/amazon_test/reward/mean@1,
-#          run nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-v2
+#          run nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
 
 source ~/.bashrc
 

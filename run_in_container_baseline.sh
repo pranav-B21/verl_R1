@@ -10,7 +10,7 @@
 # the ONLY difference is the reward function.
 #
 # Compare in WandB (project Search-R1-CF), metric val-core/amazon_test/reward/mean@1:
-#   This run (baseline): nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-v2
+#   This run (baseline): nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
 #   RewardB-v2:          nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-v2
 #   Rthink-v2:           nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v2
 #
@@ -34,7 +34,7 @@ export TEST_DATA_DIR='./data/amazon_data'
 export SSL_CERT_FILE=/work/11138/pranavbelligundu/vista/verl_R1/Software/cacert.pem
 
 export BASE_MODEL='Qwen/Qwen3-1.7B'
-export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-v2
+export EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
 
 export WAND_PROJECT='Search-R1-CF'
 export VLLM_ATTENTION_BACKEND=XFORMERS
