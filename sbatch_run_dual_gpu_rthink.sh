@@ -7,17 +7,23 @@
 #SBATCH -t 24:00:00
 #SBATCH -o output_dual_gpu_rthink.log
 
-# Full reasoning reward (A+B+C): R_total = R_answer + lambda * R_think
-#   R_think = alpha * info_gain - beta * redundancy + gamma * exploration_bonus
+# Dual-node rthink training: node[0] = retriever, node[1] = training.
+# The training script is run_in_container_rthink.sh, which is the CURRENT reasoning
+# reward iteration (v5: format-gated, HR-targeted dense reward — kills v4's
+# multi-answer hack). RUN_SCRIPT overrides it if needed.
 #
 #   node[0] → retriever (retrieval_launch.sh)
-#   node[1] → training  (run_in_container_rthink.sh, USE_RTHINK=1)
+#   node[1] → training  (run_in_container_rthink.sh, USE_RTHINK=1, RTHINK_MODE=v5)
 #
-# Submit:  sbatch sbatch_run_dual_gpu_rthink.sh
+# Submit (v5, default):   sbatch sbatch_run_dual_gpu_rthink.sh
+# v5 gate-only ablation:  RTHINK_DENSE_ONLY=1 EXPERIMENT_NAME=...-rthink-v5-denseonly \
+#                           sbatch sbatch_run_dual_gpu_rthink.sh
+# Reproduce v4:           RTHINK_MODE=v4 RTHINK_FORMAT_GATE=0 RTHINK_DENSE_P=1.0 \
+#                           EXPERIMENT_NAME=...-rthink-v4 sbatch sbatch_run_dual_gpu_rthink.sh
 # Monitor: tail -f output_dual_gpu_rthink.log
-#          tail -f nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink.log
+#          tail -f nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v5.log
 # WandB:   compare against nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
-#           in project Search-R1-CF
+#           in project Search-R1-CF (watch r_answer + the new format_ok metric)
 
 source ~/.bashrc
 
@@ -119,8 +125,12 @@ if ! wait_for_retriever_ready; then
   exit "${status:-1}"
 fi
 
+# Training script to run inside the container. run_in_container_rthink.sh is the
+# current reasoning-reward iteration (v5); to A/B an earlier reward, override
+# RTHINK_MODE on the same script (e.g. RTHINK_MODE=v4 ...).
+RUN_SCRIPT="${RUN_SCRIPT:-run_in_container_rthink.sh}"
 srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive --chdir="${PROJECT_DIR}" \
-  bash run_in_container_rthink.sh &
+  bash "${RUN_SCRIPT}" &
 training_pid=$!
 
 while true; do

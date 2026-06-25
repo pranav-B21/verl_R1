@@ -70,12 +70,3 @@ wandb history, against the baseline:
 The full prose analysis is in
 [`../../../../../../REWARD_REASONING_ANALYSIS.md`](../../../../../../REWARD_REASONING_ANALYSIS.md).
 
-## What v3 changed in response
-
-- Dropped `info_gain`/`redundancy`/`exploration` for **evidence-grounded**
-  signals that correlate with correctness (`tool_use`, `grounding`,
-  `synthesis`), keeping only Tier-0 self-repetition as `self_rep`.
-- Made shaping **two-sided and mostly positive**, **capped below the
-  answer-tier gaps**, and fixed the asymmetric gate so the positive half pays.
-- Removed all module-global state (resume-safe, GRPO-visible).
-- Returns a dict so `r_answer` is logged separately for clean comparison.

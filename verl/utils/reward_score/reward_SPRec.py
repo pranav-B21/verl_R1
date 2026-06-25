@@ -44,25 +44,37 @@ def read_json(json_file:str) -> dict:
     return json.load(f)
 
 
-def similarity_match(solution_str, ground_truth, data_source):
+def similarity_match(solution_str, ground_truth, data_source, return_rank=False):
+    """Tiered outcome reward.
+
+    By default returns the float partial-credit `match` (baseline behaviour,
+    unchanged byte-for-byte). When ``return_rank=True`` it instead returns a dict
+    ``{"match", "rankId", "N", "target_found"}`` so callers (the v4 dense reward)
+    can build a continuous, rank-based signal and apply the F9 fix (a target that
+    is absent from ``name2id`` is reported as ``target_found=False`` rather than
+    silently falling back to ``target_id=0`` — i.e. item-0's spurious rank-1).
+    """
     title = extract_solution(solution_str)
     open_count, close_count = count_answer_tags(solution_str)
 
     do_print = random.randint(1, 64) == 1
-    
+
     if do_print:
         print(f"--------------------------------")
         print(f"Golden answers: {ground_truth["target"].strip().strip('"')}")
         print(f"Extracted answer: {title}")
         print(f"Solution string: {solution_str}")
 
+    rankId = None
+    n_items = None
+    target_found = False
     if title:
         match = re.search(r'"([^"]*)', title)
         if match:
             text = match.group(1)
         else:
             text = solution_str.split('\n', 1)[0]
-        
+
         # Identify your sentence-embedding model
         model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
         if "amazon" in data_source:
@@ -73,18 +85,20 @@ def similarity_match(solution_str, ground_truth, data_source):
             name2id = read_json(f"./data/goodreads_data/Goodreads/name2id.json")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         embeddings = torch.tensor(embeddings, device=device)
-        
+
         predict_embedding = torch.tensor(model.encode(text), device=device)
         if predict_embedding.ndim == 1:
             predict_embedding = predict_embedding.unsqueeze(0)
         dist = torch.cdist(predict_embedding, embeddings, p=2).squeeze(0)
         rank = dist.argsort()
+        n_items = len(rank)
 
         target_name = ground_truth["target"].strip().strip('"')
-        if target_name in name2id:
+        target_found = target_name in name2id
+        if target_found:
             target_id = name2id[target_name]
         else:
-            target_id = 0
+            target_id = 0  # baseline fallback (kept so the float `match` is unchanged)
 
         rank_pos = (rank == target_id).nonzero(as_tuple=False)
         rankId = rank_pos.item() + 1 if rank_pos.numel() > 0 else len(rank) + 1
@@ -106,9 +120,16 @@ def similarity_match(solution_str, ground_truth, data_source):
                 match = -0.5
     else:
         match = 0.0
+
+    if return_rank:
+        return {
+            "match": match,
+            "rankId": rankId,
+            "N": n_items,
+            "target_found": target_found,
+        }
     return match
 
 
-def compute_score(solution_str, ground_truth, data_source, method='strict', format_score=0., score=1.):
-    match_score = similarity_match(solution_str, ground_truth, data_source)
-    return match_score
+def compute_score(solution_str, ground_truth, data_source, method='strict', format_score=0., score=1., return_rank=False):
+    return similarity_match(solution_str, ground_truth, data_source, return_rank=return_rank)

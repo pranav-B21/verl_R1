@@ -82,19 +82,6 @@ correct one.
 The reward manager logs every key, so training and validation both expose
 per-component curves (`.../r_answer/mean@1`, `.../grounding/mean@1`, ...).
 
-## Running it
-
-```bash
-# v3 is the default whenever rthink is on:
-USE_RTHINK=1 ...            # RTHINK_MODE defaults to v3
-
-# explicit / tuned:
-USE_RTHINK=1 RTHINK_MODE=v3 RTHINK_SCALE=0.10 RTHINK_CAP=0.08 ...
-```
-
-`run_in_container_rthink.sh` exports and forwards these vars. For the
-baseline/v2/v3 A/B protocol see [../README.md](../README.md#recommended-ab-protocol).
-
 ## Caveats / things to watch
 
 - **`grounding` rewards evidence-supported answers, not necessarily *correct*

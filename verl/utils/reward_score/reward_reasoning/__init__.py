@@ -8,12 +8,16 @@ ablated independently:
     reward_reasoning/
       v2/   info_gain / redundancy / exploration   (underperformed baseline)
       v3/   evidence-grounded process reward        (current default)
+      v4/   dense rank-based answer reward          (targeted exploration)
+      v5/   format-gated, HR-targeted dense reward  (kills the v4 multi-answer hack)
 
 Entry point
 -----------
 ``compute_score(...)`` dispatches to the iteration selected by the ``RTHINK_MODE``
 environment variable (default ``v3``):
 
+    RTHINK_MODE=v5            -> v5.compute_score
+    RTHINK_MODE=v4            -> v4.compute_score
     RTHINK_MODE=v3            -> v3.compute_score   (default)
     RTHINK_MODE=v2 | legacy   -> v2.compute_score
 
@@ -29,6 +33,8 @@ import os
 _MODE_ALIASES = {
     "v2": "v2", "legacy": "v2", "2": "v2",
     "v3": "v3", "3": "v3",
+    "v4": "v4", "4": "v4",
+    "v5": "v5", "5": "v5",
 }
 
 
@@ -43,6 +49,10 @@ def compute_score(solution_str, ground_truth, data_source,
     mode = _resolve_mode()
     if mode == "v2":
         from .v2 import compute_score as _impl
+    elif mode == "v4":
+        from .v4 import compute_score as _impl
+    elif mode == "v5":
+        from .v5 import compute_score as _impl
     else:
         from .v3 import compute_score as _impl
     return _impl(

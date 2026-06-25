@@ -2,7 +2,21 @@
 # set -euo pipefail
 
 # This script evaluates a trained checkpoint inside the Singularity container.
-# Usage: bash test_in_container.sh
+# Defaults to the no-reasoning BASELINE run (nq-...-gpu-baseline) at step 500 —
+# the answer-only reference that the rthink-v3 reward is judged against. eval.py
+# ranks the greedy/sampled <answer> against the item-embedding catalog for
+# top-1/top-5, the same generalization metric as test_in_container_rthink.sh, so
+# the two are directly comparable.
+#
+# Usage:
+#   bash test_in_container.sh
+#
+# Overrideable env vars (set before running):
+#   EXPERIMENT_NAME   — default the gpu-baseline run
+#   CHECKPOINT_STEP   — default "500". Accepts "latest", a number, or "global_step_*".
+#   FORCE_MERGE       — set to 1 to re-merge even if the merged model exists
+#   GEN_BATCH_SIZE    — generation batch size (default 32)
+#   CUDA_VISIBLE_DEVICES
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 
@@ -21,7 +35,7 @@ export SSL_CERT_FILE=${SSL_CERT_FILE:-/work/11138/pranavbelligundu/vista/Softwar
 
 # Training config defaults (can be overridden before calling the script)
 export BASE_MODEL=${BASE_MODEL:-'Qwen/Qwen3-1.7B'}
-export EXPERIMENT_NAME=${EXPERIMENT_NAME:-nq-search-r1-grpo-qwen3-1.7b-sbatch}
+export EXPERIMENT_NAME=${EXPERIMENT_NAME:-nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline}
 export WAND_PROJECT=${WAND_PROJECT:-'Search-R1-CF'}
 
 export VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-XFORMERS}
@@ -34,7 +48,7 @@ TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
 
 # Evaluation specific overrides (customize as needed)
 CHECKPOINT_ROOT=${CHECKPOINT_ROOT:-"/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME"}
-CHECKPOINT_STEP=${CHECKPOINT_STEP:-latest} # Accepts "latest", a number, or "global_step_*"
+CHECKPOINT_STEP=${CHECKPOINT_STEP:-500} # Accepts "latest", a number, or "global_step_*"
 FORCE_MERGE=${FORCE_MERGE:-0}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-32}
 EVAL_CATEGORY=${EVAL_CATEGORY:-'CDs_and_Vinyl'}
@@ -87,6 +101,7 @@ echo "Metrics json: $METRICS_JSON"
 
 singularity exec --nv \
     --bind /work:/work \
+    --bind /scratch:/scratch \
     --env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES \
     --env GLIBC_TUNABLES=$GLIBC_TUNABLES \
     --env TOKENIZERS_PARALLELISM=$TOKENIZERS_PARALLELISM \
