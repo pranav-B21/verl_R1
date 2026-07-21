@@ -50,19 +50,30 @@ def norm_title(t: str) -> str:
     return t.strip().strip('"').strip().lower()
 
 
-def extract_queries(rollout: str) -> list[str]:
-    queries = []
+def extract_queries_by_turn(rollout: str) -> list[list[str]]:
+    """Queries grouped by <tool_call> block (== one assistant turn's search).
+
+    Preserves turn boundaries so cross-turn marginal coverage can be measured;
+    extract_queries() flattens this. A turn with only malformed/empty queries is
+    dropped (it retrieved nothing), so len(...) == number of *effective* turns.
+    """
+    turns = []
     for chunk in TOOL_CALL.findall(rollout):
         chunk = chunk.strip()
         try:
             args = json.loads(chunk)["arguments"]["query_list"]
-            queries.extend(q for q in args if isinstance(q, str) and q.strip())
+            qs = [q for q in args if isinstance(q, str) and q.strip()]
         except (json.JSONDecodeError, KeyError, TypeError):
             # ~1% of rollouts have malformed JSON (unescaped quotes); salvage
             m = re.search(r'"query_list"\s*:\s*\[\s*"(.*)"\s*\]', chunk, re.S)
-            if m:
-                queries.append(m.group(1))
-    return queries
+            qs = [m.group(1)] if m else []
+        if qs:
+            turns.append(qs)
+    return turns
+
+
+def extract_queries(rollout: str) -> list[str]:
+    return [q for turn in extract_queries_by_turn(rollout) for q in turn]
 
 
 def load_corpus(path: str):
@@ -153,10 +164,13 @@ def main():
         preds = json.load(open(preds_path))
         n = len(preds)
         gts, model_qs, hist_qs, hist_titles, parse_fail = [], [], [], [], 0
+        model_qs_by_turn = []
         for p in preds:
             gts.append(norm_title(p["output"]))
             rollout = p["predict"][0] if isinstance(p["predict"], list) else p["predict"]
-            qs = extract_queries(rollout)
+            turns = extract_queries_by_turn(rollout)
+            model_qs_by_turn.append(turns)
+            qs = [q for turn in turns for q in turn]
             if not qs:
                 parse_fail += 1
             model_qs.append(qs)
@@ -214,6 +228,69 @@ def main():
                 "best_rank_present": sorted(br for br in best_rank if br is not None),
             }
             print(f"    {vname}: " + "  ".join(f"@{k}={cov[k]:.3f}" for k in args.ks))
+
+        # ---- cross-turn cumulative coverage (the r_covgain premise) ----
+        # Existing 'model' variant unions docs across ALL of a rollout's queries
+        # regardless of turn. r_covgain instead credits a *later* turn beating the
+        # running best, so the question is: after retrieving with turn 1's queries,
+        # how much extra GT-reachability do turns 2,3,... add? We compute, per
+        # sample, the earliest turn whose cumulative retrieval places GT within
+        # top-k, then report cumulative coverage after each turn and its marginal.
+        max_turns = max((len(t) for t in model_qs_by_turn), default=0)
+        turn_hist = [len(t) for t in model_qs_by_turn]
+        entry["turn_distribution"] = {
+            "mean_turns": float(np.mean(turn_hist)) if turn_hist else 0.0,
+            "max_turns": max_turns,
+            "counts": {str(t): int(np.sum(np.array(turn_hist) == t)) for t in range(max_turns + 1)},
+        }
+        print(f"  turns/rollout: mean={entry['turn_distribution']['mean_turns']:.2f} "
+              f"max={max_turns}  dist={entry['turn_distribution']['counts']}")
+
+        if max_turns >= 1:
+            flat, owner, turn_idx = [], [], []
+            for i, turns in enumerate(model_qs_by_turn):
+                for ti, qs in enumerate(turns):
+                    for q in qs:
+                        flat.append(q)
+                        owner.append(i)
+                        turn_idx.append(ti)
+            emb = encoder.encode(flat)
+            _, ids = index.search(emb, kmax)
+            # docs retrieved by each (sample, turn)
+            docs_by_turn = [[[] for _ in range(max_turns)] for _ in range(n)]
+            for row, (i, ti) in enumerate(zip(owner, turn_idx)):
+                docs_by_turn[i][ti].append(ids[row])
+            # earliest cumulative turn (0-indexed) at which GT lands within top-k
+            cross = {}
+            for k in args.ks:
+                earliest = [None] * n
+                for i in range(n):
+                    best = None
+                    for ti in range(len(model_qs_by_turn[i])):
+                        for doc_ids in docs_by_turn[i][ti]:
+                            r = gt_in_docs(gts[i], doc_ids[:k], contents_lower)
+                            if r is not None and (best is None or r < best):
+                                best = r
+                        if best is not None:
+                            earliest[i] = ti  # first turn making GT reachable@k
+                            break
+                # cumulative coverage after t turns; marginal = new hits at turn t
+                cum = [float(np.mean([e is not None and e <= t for e in earliest]))
+                       for t in range(max_turns)]
+                marginal = [cum[0]] + [cum[t] - cum[t - 1] for t in range(1, max_turns)]
+                cross[str(k)] = {
+                    "cumulative_by_turn": cum,
+                    "marginal_by_turn": marginal,
+                    "reach_at_turn1": cum[0],
+                    "extra_from_later_turns": (cum[-1] - cum[0]) if max_turns > 1 else 0.0,
+                }
+            entry["cross_turn_coverage"] = cross
+            for k in (3, 20):
+                if str(k) in cross:
+                    c = cross[str(k)]
+                    print(f"    cross-turn@{k}: turn1={c['reach_at_turn1']:.3f}  "
+                          f"cumulative={['%.3f' % x for x in c['cumulative_by_turn']]}  "
+                          f"later-turn gain={c['extra_from_later_turns']:.3f}")
 
         results[label] = entry
 

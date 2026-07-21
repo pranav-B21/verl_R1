@@ -13,21 +13,39 @@ R_total = R_answer + (shaping derived from R_think)
 reward in [`../reward_SPRec.py`](../reward_SPRec.py). Only `R_think` (and how it
 is combined with `R_answer`) changes between iterations.
 
+**Start with [`reasoning_reward_design.md`](reasoning_reward_design.md)** — it is
+the base document for this track: the math each version computes, how the
+system is wired up, and what's done vs. still planned. This README is the
+quicker version-by-version index; `reasoning_reward_design.md` and the deep
+`REWARD_REASONING_ANALYSIS.md` it summarizes are the canonical references.
+
 ## Layout
 
 ```
 reward_reasoning/
-├── __init__.py        # version dispatcher (RTHINK_MODE -> v2 | v3)
-├── README.md          # this file
+├── __init__.py                  # version dispatcher (RTHINK_MODE -> v2 | v3 | ... | v6, v7 -> reward_retrieval.v7)
+├── README.md                    # this file
+├── reasoning_reward_design.md   # base doc: math, setup, done/planned (start here)
+├── diagnostics/                  # the 3 diagnostics that settled the v7 pivot
+│   ├── train_test_greedy_diagnostic.md
+│   ├── offline_coverage_diagnostic.md
+│   └── corpus_analysis.md
+├── diagnostics_scripts/          # the scripts + result JSONs behind those diagnostics
 ├── v2/                # info_gain / redundancy / exploration (underperformed)
 │   ├── __init__.py    # re-exports the canonical v2 implementation
 │   └── README.md      # v2 design + postmortem
-└── v3/                # evidence-grounded process reward (current default)
-    ├── __init__.py
-    ├── reasoning.py   # tool_use / grounding / synthesis / self_rep components
-    ├── orchestrator.py# R_think -> shaping -> R_total (dict return)
-    └── README.md      # v3 design rationale
+├── v3/                # evidence-grounded process reward
+│   ├── __init__.py
+│   ├── reasoning.py   # tool_use / grounding / synthesis / self_rep components
+│   ├── orchestrator.py# R_think -> shaping -> R_total (dict return)
+│   └── README.md      # v3 design rationale
+├── v4/                # dense rank-based answer reward
+├── v5/                # format-gated, HR-targeted dense reward
+└── v6/                # HR-faithful top-K outcome reward (launcher's operational default)
 ```
+
+The retrieval-quality reward (formerly `v7/` here) now lives in the sibling
+package `../reward_retrieval/` — see its `retrieval_reward_design.md`.
 
 > **Note on v2 file locations.** The v2 *implementation* still lives at
 > `../reward_SPRec_reasoning.py` (components) and `../reward_SPRec_rthink.py`
@@ -35,6 +53,29 @@ reward_reasoning/
 > by name. `v2/__init__.py` simply re-exports them so the dispatcher can select
 > v2 with the same interface as v3. The v3 implementation is fully contained in
 > `v3/`.
+
+## v7 has moved to `reward_retrieval/`
+
+An earlier roadmap originally diagnosed the v6 plateau as retrieval-bound and
+prescribed restructuring the retrieval corpus (`cf_corpus/`). **The PI
+overrode that call: don't change the corpus — the ~4.6% GT-in-docs rate on
+held-out data is correct, not a bug — and build a reward for retrieval
+instead.** The current `ROADMAP_v7.md` (now in
+`../reward_retrieval/v7/`, the corpus-fixed RRCM journal-extension plan)
+superseded that whole corpus-restructuring line of work; `cf_corpus/` is left
+in place but shelved pending the PI.
+
+**v7 is the PI's literal proposal.** It keeps v6's outcome reward, format
+gate, and length discipline verbatim, and replaces v3's reasoning-quality
+process shaping with a **retrieval-quality** shaping term: score how similar
+the docs a rollout actually retrieved are to the ground-truth answer
+(`r_retqual`), and credit a later retrieval only if it beats the running-best
+similarity (`r_covgain`). It never touches the corpus. Because it scores
+*retrieval* rather than *reasoning process*, its implementation and design
+doc now live in the sibling package
+[`../reward_retrieval/`](../reward_retrieval/retrieval_reward_design.md) —
+this package's dispatcher still routes `RTHINK_MODE=v7` there
+(`../__init__.py`).
 
 ## How to select an iteration
 
@@ -47,6 +88,10 @@ which reads `RTHINK_MODE`:
 | -------------------- | ------------------------- |
 | unset / `v3` / `3`   | **v3** (default)          |
 | `v2` / `legacy` / `2`| v2                        |
+| `v4` / `4`           | v4                        |
+| `v5` / `5`           | v5                        |
+| `v6` / `6`           | v6                        |
+| `v7` / `7`           | v7 — retrieval-quality reward, now in `../reward_retrieval/v7/` (current PI-directed work) |
 
 If `USE_RTHINK` is **not** set, the plain outcome reward (`reward_SPRec`,
 i.e. the *baseline*) is used and this package is never imported.
