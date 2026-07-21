@@ -61,6 +61,7 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.device import get_visible_devices_keyword
 from verl.utils.net_utils import is_ipv6
 from verl.utils.profiler import GPUMemoryLogger
+from verl.utils.tool_call_repair import repair_tool_call_content
 from verl.utils.torch_functional import get_response_mask, pad_sequence_to_length
 from verl.workers.config import HFModelConfig, RolloutConfig
 from verl.workers.rollout.base import BaseRollout
@@ -972,6 +973,34 @@ class SGLangRollout(BaseRollout):
                             )
                             normed_content = content
                             tool_calls = []
+
+                        # Repair malformed tool-call JSON. The policy emits unparseable
+                        # <tool_call> bodies on ~3.3% of calls, overwhelmingly a quoting
+                        # collision on apostrophe-leading titles ("'70s Gold"); the search
+                        # then never fires and the turn retrieves nothing.
+                        #
+                        # This is gated on an EMPTY result, not on a raised JSONDecodeError,
+                        # because sglang's Qwen/Llama/Mistral detectors catch the decode error
+                        # *inside* detect_and_parse (logging "Failed to parse JSON part") and
+                        # return [] rather than propagating -- so the except above almost never
+                        # fires and the exception-gated repair was effectively dead code. We
+                        # only enter this branch because has_tool_call(content) was True, so an
+                        # empty tool_calls means every <tool_call> body failed to parse. A
+                        # conservative re-parse cannot regress calls that already parsed (they
+                        # return non-empty here) and repair_tool_call_content returns None on
+                        # already-valid JSON, so it is a no-op unless a body was actually
+                        # malformed-and-repairable. See verl/utils/tool_call_repair.py for the
+                        # measured prevalence.
+                        if not tool_calls:
+                            repaired = repair_tool_call_content(content)
+                            if repaired is not None and repaired != content:
+                                try:
+                                    normed_content, tool_calls = self._function_call_parser.parse_non_stream(
+                                        repaired
+                                    )
+                                except Exception:
+                                    normed_content = content
+                                    tool_calls = []
                         if self._limit_tool_calls_to_one and len(tool_calls) > 1:
                             logger.warning(
                                 "Model produced %d tool calls in one message; only the first will be kept "
