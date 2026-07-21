@@ -1,24 +1,55 @@
 #!/bin/bash
 
+# ############################################################################
+# ##  DEPRECATED — DO NOT USE FOR AN A/B BASELINE. Runs at rollout.n = 1.   ##
+# ############################################################################
+#
+# This script never passes actor_rollout_ref.rollout.n, so it inherits the default
+# from verl/trainer/config/rollout/rollout.yaml -> n: 1. At n=1 verl's GRPO takes the
+# len==1 branch (core_algos.py:312) and sets mean=0/std=1, so the advantage IS the raw
+# reward: REINFORCE with NO group-relative baseline. Every run produced by this script
+# (and all of v2-v6) is therefore confounded and is NOT a valid comparator. The PI has
+# confirmed n=1 was a bug in the original code and that the canonical value is 8 — the
+# published Table-1 baseline was itself produced at n=8.
+#
+# It also lacks the hardened substrate the current runs use: no patch_torch bind-mount
+# (pidfd_getfd crash on resume), no gpu_memory_utilization=0.65 / max_response_length=2048
+# OOM fixes, and no RTHINK_* --env passthrough.
+#
+# ==> THE CORRECT OUTCOME-ONLY BASELINE, on an identical substrate to the v7 arm:
+#
+#       USE_RTHINK=0 EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8 \
+#         sbatch -o output_baseline_n8.log sbatch_run_dual_gpu_rthink.sh
+#
+#     run_in_container_rthink.sh honours USE_RTHINK=0 and routes to the same
+#     outcome-only reward_SPRec reward, at n=8, with every substrate fix applied.
+#
+# This file is kept only to reproduce the historical n=1 runs. To run it anyway:
+#       ALLOW_N1_BASELINE=1 bash run_in_container_baseline.sh
+#
+# ----------------------------------------------------------------------------
 # OUTCOME-ONLY BASELINE (no reasoning reward).
 # Reward = R_answer only, via reward_SPRec.compute_score.
 # With USE_RTHINK=0 and USE_REWARD_B=0, reward_score/__init__.py routes amazon
-# data to the old reward_SPRec (outcome-based embedding-rank reward) — the exact
-# reference for comparing the rthink / rewardB reasoning-reward runs.
-#
-# Apples-to-apples with rthink-v2: identical BASE_MODEL, data, and GRPO config;
-# the ONLY difference is the reward function.
-#
-# Compare in WandB (project Search-R1-CF), metric val-core/amazon_test/reward/mean@1:
-#   This run (baseline): nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
-#   RewardB-v2:          nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rewardB-v2
-#   Rthink-v2:           nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v2
+# data to the old reward_SPRec (outcome-based embedding-rank reward).
 #
 # Resume behaviour (auto by default):
 #   - Leave CHECKPOINT_PATH unset → resume_mode=auto. For a brand-new run this
 #     starts fresh from BASE_MODEL; on a re-launch it picks the latest checkpoint
 #     from trainer.default_local_dir automatically.
 #   - Set CHECKPOINT_PATH=/path/to/global_step_NNN to resume from a specific step.
+
+if [[ "${ALLOW_N1_BASELINE:-0}" != "1" ]]; then
+  echo "REFUSING TO RUN: this script trains at rollout.n=1 (no GRPO group baseline)," >&2
+  echo "which produces an INVALID comparator that looks legitimate in WandB." >&2
+  echo "" >&2
+  echo "For the real outcome-only baseline at n=8, on the identical substrate:" >&2
+  echo "  USE_RTHINK=0 EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8 \\" >&2
+  echo "    sbatch -o output_baseline_n8.log sbatch_run_dual_gpu_rthink.sh" >&2
+  echo "" >&2
+  echo "To reproduce the historical n=1 run anyway: ALLOW_N1_BASELINE=1 bash $0" >&2
+  exit 1
+fi
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
 

@@ -5,9 +5,9 @@
 # same 4-step pipeline as test_in_container.sh: merge -> generate predictions ->
 # to-json -> eval.py.
 #
-# By DEFAULT this evaluates the v5 run on the true held-out metric
+# By DEFAULT this evaluates the v6 run on the true held-out metric
 # (eval.py HR@1/HR@5):
-#   nq-...-rthink-v5 @ global_step_300
+#   nq-...-rthink-v6 @ global_step_300
 # A final summary table prints HR@1 / HR@5 / NDCG@5 / ORRatio@1, and (when
 # available) the baseline / v3 numbers for context.
 # To evaluate a different run/step, set RTHINK_RUNS explicitly (see Usage).
@@ -20,15 +20,15 @@
 # comparable to the baseline.
 #
 # Usage:
-#   bash test_in_container_rthink.sh                       # v5 @ step 300
-#   RTHINK_RUNS="...-rthink-v5:300 ...-rthink-v5:400" bash test_in_container_rthink.sh
+#   bash test_in_container_rthink.sh                       # v6 @ step 300
+#   RTHINK_RUNS="...-rthink-v6:300 ...-rthink-v6:400" bash test_in_container_rthink.sh
 #   EXPERIMENT_NAME=...-rthink-v3 CHECKPOINT_STEP=300 bash test_in_container_rthink.sh  # single run
 #
 # Overrideable env vars (set before running):
 #   RTHINK_RUNS       — space-separated list of "experiment[:step]" entries to
 #                       evaluate in order. step accepts "latest", a number, or
 #                       "global_step_*"; if omitted it falls back to CHECKPOINT_STEP.
-#                       Default: rthink-v5 @ step 300.
+#                       Default: rthink-v6 @ step 300.
 #   EXPERIMENT_NAME   — if set, overrides RTHINK_RUNS with a single run (back-compat).
 #   CHECKPOINT_STEP   — default step for entries without an explicit ":step"
 #                       (default "latest"). For v3 use 300 (pre-collapse peak).
@@ -77,7 +77,7 @@ EVAL_DATASET_DIR=${EVAL_DATASET_DIR:-''}
 if [ -n "${EXPERIMENT_NAME:-}" ]; then
     RTHINK_RUNS=${RTHINK_RUNS:-"${EXPERIMENT_NAME}:${CHECKPOINT_STEP}"}
 else
-    RTHINK_RUNS=${RTHINK_RUNS:-"nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v5:300"}
+    RTHINK_RUNS=${RTHINK_RUNS:-"nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v6:300"}
 fi
 
 # Collected (experiment, subdir, eval_log) per run for the final summary.

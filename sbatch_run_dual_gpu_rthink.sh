@@ -7,23 +7,37 @@
 #SBATCH -t 24:00:00
 #SBATCH -o output_dual_gpu_rthink.log
 
-# Dual-node rthink training: node[0] = retriever, node[1] = training.
-# The training script is run_in_container_rthink.sh, which is the CURRENT reasoning
-# reward iteration (v5: format-gated, HR-targeted dense reward — kills v4's
-# multi-answer hack). RUN_SCRIPT overrides it if needed.
+# Dual-node training: node[0] = retriever, node[1] = training.
+# The training script is run_in_container_rthink.sh, currently the v7 retrieval-quality
+# reward (r_retqual: cosine of the best retrieved doc to GT, per turn) at rollout.n=8.
+# RUN_SCRIPT overrides the training script if needed.
 #
 #   node[0] → retriever (retrieval_launch.sh)
-#   node[1] → training  (run_in_container_rthink.sh, USE_RTHINK=1, RTHINK_MODE=v5)
+#   node[1] → training  (run_in_container_rthink.sh, USE_RTHINK=1, RTHINK_MODE=v7)
 #
-# Submit (v5, default):   sbatch sbatch_run_dual_gpu_rthink.sh
-# v5 gate-only ablation:  RTHINK_DENSE_ONLY=1 EXPERIMENT_NAME=...-rthink-v5-denseonly \
-#                           sbatch sbatch_run_dual_gpu_rthink.sh
-# Reproduce v4:           RTHINK_MODE=v4 RTHINK_FORMAT_GATE=0 RTHINK_DENSE_P=1.0 \
-#                           EXPERIMENT_NAME=...-rthink-v4 sbatch sbatch_run_dual_gpu_rthink.sh
-# Monitor: tail -f output_dual_gpu_rthink.log
-#          tail -f nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v5.log
-# WandB:   compare against nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline
-#           in project Search-R1-CF (watch r_answer + the new format_ok metric)
+# MUST be submitted from a LOGIN node — sbatch is unavailable on compute nodes.
+#
+# THE A/B PAIR (both arms MUST be n=8; older -baseline (n=1) and -baseline-n5 runs are
+# NOT valid comparators — n=1 disabled GRPO's group-relative baseline entirely):
+#   M1 baseline: USE_RTHINK=0 EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8 \
+#                  sbatch -o output_baseline_n8.log sbatch_run_dual_gpu_rthink.sh
+#   M3 v7 run:   sbatch -o output_rthink_v7_n8.log sbatch_run_dual_gpu_rthink.sh
+# Using THIS script for both arms is deliberate: it keeps the substrate identical
+# (patch_torch mount, gpu_mem 0.65, response 2048, n=8). Do NOT use
+# run_in_container_baseline.sh — it omits rollout.n (inherits rollout.yaml n=1).
+#
+# Other invocations:
+#   Wiring ablation:  RTHINK_RETRIEVAL_ONLY=1 EXPERIMENT_NAME=...-rthink-v7-shapingoff \
+#                       sbatch sbatch_run_dual_gpu_rthink.sh    # must reproduce the baseline
+#   Group-size ladder: ROLLOUT_N=12 (then 16) — the launcher pre-flights batch divisibility
+#   Reproduce v6:     RTHINK_MODE=v6 EXPERIMENT_NAME=...-rthink-v6 sbatch ...
+#
+# Monitor: tail -f output_baseline_n8.log
+#          tail -f nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8.log
+#          grep -m1 "'n':" <log>            # confirm n=8 resolved
+#          grep "\[pre-flight\]" <log>      # confirm batch geometry accepted
+# WandB (project Search-R1-CF): compare r_answer + format_ok, NOT the shaped score.
+#          Health: retrieval-rate must not drift down; best_sim distribution sane.
 
 source ~/.bashrc
 
@@ -126,8 +140,8 @@ if ! wait_for_retriever_ready; then
 fi
 
 # Training script to run inside the container. run_in_container_rthink.sh is the
-# current reasoning-reward iteration (v5); to A/B an earlier reward, override
-# RTHINK_MODE on the same script (e.g. RTHINK_MODE=v4 ...).
+# current reasoning-reward iteration (v6); to A/B an earlier reward, override
+# RTHINK_MODE on the same script (e.g. RTHINK_MODE=v5 ...).
 RUN_SCRIPT="${RUN_SCRIPT:-run_in_container_rthink.sh}"
 srun --nodelist="${training_host}" --nodes=1 --ntasks=1 --exclusive --chdir="${PROJECT_DIR}" \
   bash "${RUN_SCRIPT}" &
