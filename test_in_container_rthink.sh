@@ -34,6 +34,11 @@
 #                       (default "latest"). For v3 use 300 (pre-collapse peak).
 #   FORCE_MERGE       — set to 1 to re-merge even if the merged model exists
 #   GEN_BATCH_SIZE    — generation batch size (default 32)
+#   EVAL_REPEATS      — independent decodes per checkpoint (default 1). Decode is
+#                       unseeded at temperature=1.0, so one decode is a sample, not
+#                       a measurement; use 3 to get a mean/spread. Each repeat lands
+#                       in its own <step>/decode<i>_<date>/ dir (no clobbering) and
+#                       gets its own row in the summary table.
 #   CUDA_VISIBLE_DEVICES
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
@@ -61,12 +66,23 @@ export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
 
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
-TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
+# Honor an externally supplied TOOL_CONFIG so a launcher can hand us a job-scoped
+# copy instead of the shared file (see sbatch_run_test_rthink.sh). Concurrent jobs
+# that all sed the shared config repoint each other's retriever mid-run; falling
+# back to the shared path keeps standalone invocations working.
+TOOL_CONFIG="${TOOL_CONFIG:-$CONFIG_PATH/tool_config/search_tool_config.yaml}"
+echo "[tool-config] using $TOOL_CONFIG -> $(grep -m1 'retrieval_service_url' "$TOOL_CONFIG" 2>/dev/null)"
 
 # Evaluation specific overrides (customize as needed)
 CHECKPOINT_STEP=${CHECKPOINT_STEP:-latest}  # default step for entries w/o ":step"
 FORCE_MERGE=${FORCE_MERGE:-0}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-32}
+# Number of independent decodes per checkpoint. Decode is unseeded and sampled at
+# temperature=1.0, so re-decoding the same checkpoint yields a different HR each
+# time; a single decode is not a measurement. >1 nests each repeat in its own
+# output subdir (see run_one's RUN_TAG) and the final summary prints one row per
+# repeat, giving the mean/spread directly.
+EVAL_REPEATS=${EVAL_REPEATS:-1}
 EVAL_CATEGORY=${EVAL_CATEGORY:-'CDs_and_Vinyl'}
 # Optional explicit dataset resource dir (contains id2name.json, name2id.json, embeddings.pt, ...).
 # If unset, it is derived from EVAL_CATEGORY under $PROJECT_DIR/data/amazon_data/<category>.
@@ -84,13 +100,20 @@ fi
 SUMMARY_ENTRIES=()
 
 # ---------------------------------------------------------------------------
-# run_one EXPERIMENT_NAME CHECKPOINT_STEP
+# run_one EXPERIMENT_NAME CHECKPOINT_STEP [RUN_TAG]
 #   Resolves the checkpoint path and runs merge -> generate -> json -> eval.py
 #   inside the container for one checkpoint.
+#
+#   RUN_TAG (optional) nests all outputs under an extra subdirectory. Decode is
+#   stochastic (temperature=1.0, top_p=0.95) and unseeded, so repeated decodes of
+#   the SAME checkpoint give different HR -- that spread is the measurement bar.
+#   Without a tag every repeat writes the same test_predictions.json and clobbers
+#   its predecessor, so EVAL_REPEATS>1 always passes one.
 # ---------------------------------------------------------------------------
 run_one() {
     local EXPERIMENT_NAME="$1"
     local CHECKPOINT_STEP="$2"
+    local RUN_TAG="${3:-}"
 
     local CHECKPOINT_ROOT="/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME"
     if [ ! -d "$CHECKPOINT_ROOT" ]; then
@@ -120,8 +143,9 @@ run_one() {
         return 1
     fi
 
+    # The merged HF model is decode-invariant, so repeats share it (merged once).
     local MERGED_MODEL_DIR="/scratch/11138/pranavbelligundu/verl/merged_models/$EXPERIMENT_NAME/$CHECKPOINT_SUBDIR"
-    local EVAL_OUTPUT_DIR="$PROJECT_DIR/outputs/eval/$EXPERIMENT_NAME/$CHECKPOINT_SUBDIR"
+    local EVAL_OUTPUT_DIR="$PROJECT_DIR/outputs/eval/$EXPERIMENT_NAME/$CHECKPOINT_SUBDIR${RUN_TAG:+/$RUN_TAG}"
     local GEN_OUTPUT_PARQUET="$EVAL_OUTPUT_DIR/test_predictions.parquet"
     local PRED_JSON="$EVAL_OUTPUT_DIR/test_predictions.json"
     local METRICS_JSON="$EVAL_OUTPUT_DIR/test_metrics.json"
@@ -304,7 +328,7 @@ PY
         ' \
         2>&1 | tee "$EVAL_OUTPUT_DIR/test_eval.log"
 
-    SUMMARY_ENTRIES+=("${EXPERIMENT_NAME}|${CHECKPOINT_SUBDIR}|${EVAL_OUTPUT_DIR}/test_eval.log")
+    SUMMARY_ENTRIES+=("${EXPERIMENT_NAME}|${CHECKPOINT_SUBDIR}${RUN_TAG:+ [$RUN_TAG]}|${EVAL_OUTPUT_DIR}/test_eval.log")
 }
 
 # ---------------------------------------------------------------------------
@@ -314,7 +338,16 @@ for entry in $RTHINK_RUNS; do
     exp="${entry%%:*}"
     step="${entry#*:}"
     [ "$step" = "$entry" ] && step="$CHECKPOINT_STEP"   # no ":step" given
-    run_one "$exp" "$step" || echo "[warn] run failed/skipped: $entry" >&2
+    if [ "$EVAL_REPEATS" -le 1 ]; then
+        run_one "$exp" "$step" || echo "[warn] run failed/skipped: $entry" >&2
+    else
+        for i in $(seq 1 "$EVAL_REPEATS"); do
+            echo ""
+            echo ">>> decode repeat $i/$EVAL_REPEATS for $entry"
+            run_one "$exp" "$step" "decode${i}_$(date +%F)" \
+                || echo "[warn] run failed/skipped: $entry (repeat $i)" >&2
+        done
+    fi
 done
 
 # ---------------------------------------------------------------------------
@@ -326,8 +359,8 @@ echo ""
 echo "######################################################################"
 echo "# Held-out eval summary (true HR/NDCG/ORRatio from eval.py)"
 echo "######################################################################"
-printf "%-46s %-14s %8s %8s %8s %10s\n" "experiment" "checkpoint" "HR@1" "HR@5" "NDCG@5" "ORRatio@1"
-printf "%-46s %-14s %8s %8s %8s %10s\n" "----------" "----------" "----" "----" "------" "---------"
+printf "%-46s %-34s %8s %8s %8s %10s\n" "experiment" "checkpoint" "HR@1" "HR@5" "NDCG@5" "ORRatio@1"
+printf "%-46s %-34s %8s %8s %8s %10s\n" "----------" "----------" "----" "----" "------" "---------"
 for s in "${SUMMARY_ENTRIES[@]}"; do
     IFS='|' read -r exp sub log <<< "$s"
     # HR/NDCG are printed once per topk pass, in order [topk=1, topk=5].
@@ -335,7 +368,7 @@ for s in "${SUMMARY_ENTRIES[@]}"; do
     hr5=$(grep -aoE 'HR:\[[-0-9.e]+\]' "$log" 2>/dev/null | sed 's/HR:\[\(.*\)\]/\1/' | sed -n '2p')
     ndcg5=$(grep -aoE 'NDCG:\[[-0-9.e]+\]' "$log" 2>/dev/null | sed 's/NDCG:\[\(.*\)\]/\1/' | sed -n '2p')
     orr1=$(grep -aoE 'ORRatio:[-0-9.e]+' "$log" 2>/dev/null | sed 's/ORRatio://' | sed -n '1p')
-    printf "%-46s %-14s %8s %8s %8s %10s\n" \
+    printf "%-46s %-34s %8s %8s %8s %10s\n" \
         "${exp#nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-}" "$sub" \
         "${hr1:-n/a}" "${hr5:-n/a}" "${ndcg5:-n/a}" "${orr1:-n/a}"
 done

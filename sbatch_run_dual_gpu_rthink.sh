@@ -4,7 +4,7 @@
 #SBATCH -A ASC26032
 #SBATCH -N 2                # two nodes, one GPU each
 #SBATCH -n 2
-#SBATCH -t 24:00:00
+#SBATCH -t 48:00:00
 #SBATCH -o output_dual_gpu_rthink.log
 
 # Dual-node training: node[0] = retriever, node[1] = training.
@@ -42,8 +42,10 @@
 source ~/.bashrc
 
 cleanup() {
-  if [[ -f "${CONFIG_BACKUP:-}" && -n "${CONFIG_FILE:-}" ]]; then
-    cp "${CONFIG_BACKUP}" "${CONFIG_FILE}" 2>/dev/null || true
+  # The per-job tool config is disposable (see below) — just remove it. Nothing is
+  # restored, because this job never edits the shared config in the first place.
+  if [[ -n "${CONFIG_FILE:-}" && "${CONFIG_FILE}" == *"/_tool_configs/"* ]]; then
+    rm -f "${CONFIG_FILE}" 2>/dev/null || true
   fi
   if [[ -n "${training_pid:-}" ]] && kill -0 "$training_pid" 2>/dev/null; then
     kill "$training_pid" 2>/dev/null || true
@@ -57,9 +59,23 @@ cleanup() {
 trap cleanup EXIT
 
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
-CONFIG_FILE="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml"
-CONFIG_BACKUP=$(mktemp)
-cp "$CONFIG_FILE" "$CONFIG_BACKUP"
+SHARED_CONFIG="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml"
+
+# PER-JOB TOOL CONFIG — do NOT sed the shared file.
+# retrieval_service_url has to be rewritten to this job's retriever host, but the
+# shared config is a single file that every launcher here (sbatch_run_test_rthink.sh,
+# sbatch_run_dual_gpu_good.sh, ...) also sed-edits and then restores on exit. Two
+# concurrent jobs therefore race: the later sed points the earlier job's rollout at the
+# wrong retriever, and the first job to exit restores the stale URL under the other.
+# The window is real — it spans retriever startup (<=180s) plus trainer init, which is
+# when the rollout actually reads this path. So this job copies the config to a
+# job-scoped file on /scratch (shared FS, visible from the training node, outside the
+# hydra config tree) and edits only that. The shared file is never modified.
+CONFIG_DIR="/scratch/11138/pranavbelligundu/verl/_tool_configs"
+mkdir -p "$CONFIG_DIR"
+CONFIG_FILE="$CONFIG_DIR/search_tool_config.${SLURM_JOB_ID:-$$}.yaml"
+cp "$SHARED_CONFIG" "$CONFIG_FILE"
+export TOOL_CONFIG="$CONFIG_FILE"   # consumed by run_in_container_rthink.sh
 
 MAX_RETRIEVER_RESTARTS="${MAX_RETRIEVER_RESTARTS:-3}"
 RETRIEVER_STARTUP_TIMEOUT_S="${RETRIEVER_STARTUP_TIMEOUT_S:-180}"
@@ -70,6 +86,7 @@ training_host="${nodes[1]:-${nodes[0]}}"
 
 retrieval_url="http://${retriever_host}:8000/retrieve"
 sed -i "s#^\\( *retrieval_service_url: \\).*#\\1${retrieval_url}#" "$CONFIG_FILE"
+echo "[tool-config] job-scoped copy: $CONFIG_FILE -> ${retrieval_url}"
 
 start_retriever() {
   echo "Starting retriever on ${retriever_host}..."

@@ -7,28 +7,91 @@ this file for the frame — nothing strategic is duplicated there, so it can't d
 **Contribution:** a structured **retrieval + reasoning reward** that beats RRCM's published
 outcome-only ranking reward, on the **identical RRCM system** (dual-memory corpus, retriever,
 grounding, GRPO). Nothing about the corpus or retrieval substrate changes — the Table-1 comparison
-only holds if the system underneath is identical. Last updated 2026-07-16 (folds in PI's 2026-07-16
-reply, and the M0 execution pass that followed it).
+only holds if the system underneath is identical. Last updated **2026-07-25** (M3 read at
+step 200: retrieval **collapsed**; root cause found, fix implemented + offline-audited; A2
+pre-collapse decodes running).
 
 ---
 
 ## STATUS (read this first)
+
+### 2026-07-25 UPDATE — M3 read, collapsed, fix in progress (supersedes the 07-21 block below)
+
+**M3 result (❌).** v7 read at step 200 vs baseline-n8: **retrieval policy collapsed to ~5%**
+(baseline ~99%), HR a tie inside decode noise. Real collapse, not a dead retriever
+(docs/ret ~3 on the rollouts that did retrieve). Full writeup: root
+`REWARD_REASONING_ANALYSIS.md` **Part 8** + `TEST_OUTPUT.md`.
+
+**Root cause (two independent collapse pressures, both now fixed).**
+1. **Length penalty** — `len_penalty` counted the retriever's `<tool_response>` docs AND the
+   model's own second (post-retrieval) reasoning block against a flat 600-word budget, so a
+   retrieving rollout ate ~0.2 while `r_retqual` paid only ~+0.004 → retrieve ≈ −0.2 vs
+   abstain ≈ 0. **Fix:** `orchestrator.py` now (a) strips `<tool_response>` from the word
+   count and (b) grows the budget by `RTHINK_LEN_PER_TURN` per **doc-returning** turn (capped
+   at `RTHINK_LEN_TURN_CAP=3`; spam-proof). Increment sized empirically (abstain 239 gen-words,
+   +1 turn 999; p90 marginal 1303 would near-exempt, so INCR is set below it; placeholder 400,
+   **pending A2**).
+2. **Junk-retrieval penalty** — removed per **advisor Shijun Li (2026-07-25)**. `r_retqual` is
+   now **ONE-SIDED**: below-τ retrievals score **0, never negative** (`retrieval.py::_retqual`;
+   `RTHINK_RETQUAL_FLOOR` now **INERT**). Rationale: the term scores only the *collaborative*
+   axis (cosine to GT next item); a below-τ retrieval is often legitimate item-*attribute*
+   lookup, so penalizing it suppresses attribute retrieval. **This supersedes the "τ RE-CALIBRATED
+   0.30→0.20 / floor as collapse guard" material below and in §4a** — τ is now only a boost
+   threshold; the floor is gone by design.
+
+**Audit-before-train.** New tool `audits/offline_reward_replay.py` re-scores logged rollouts
+under old vs new reward. It confirmed the mechanism and caught that the doc-strip alone was
+insufficient (retrieve `len_penalty` 0.173→0.138); the turns-aware budget takes it to 0.063.
+Details: `audits/offline_reward_replay_2026-07-24.md`.
+
+**Pending → v7b.** A2 = short GPU decodes of pre-collapse ckpts 100/150 (jobs 865934/865935) to
+lock `LEN_PER_TURN`, re-run the gate with one-sided retqual, and size Fix 2 (retqual SCALE/CAP,
+≤0.1). Then **v7b**: one-sided retqual + turns-aware length release + **more steps** +
+**multi-node** training (Shijun: 200 steps is undertrained), plus the still-unrun
+`RTHINK_RETRIEVAL_ONLY=1` parity ablation. **Judging protocol:** compare held-out at
+convergence (not training curves); ≥3 decode seeds beating the spread; retrieval-side coverage
+as the dev metric, HR@5 as the paper headline.
+
+### Where we are right now (2026-07-21) — HISTORICAL; see the 07-25 update above
+
+**M0 ✅ · M1 🔄 · M2 ✅ · M3 ❌ read (collapsed) → fix in progress · M4 ⬜ · M5 ⬜**
+
+| | |
+|---|---|
+| **Comparison step** | **LOCKED at 200** for every arm. The baseline died at wall-time with a checkpoint at `global_step_200`; nothing is resumed to 300, so every arm is read at 200. |
+| **M1 baseline** | `...-gpu-baseline-n8`, job `848159`, trained to step 220 (ckpt 200), outcome-only `reward_SPRec`, `n=8` verified. Eval decode for the HR@5 bar is job `854449`. **Open: whether the step-200 lock changes the 3-seed requirement — user/PI call, not assumed.** |
+| **M2** | ✅ **DONE 2026-07-20.** `r_covgain` → `W=0` **permanent**. Top-k 3→20 carved out as its own single-variable experiment, explicitly **not** folded into M3. |
+| **M3** | ❌ **READ 2026-07-24 — retrieval COLLAPSED** (see the 07-25 update above). Launched SLURM `854501` (`RTHINK_MODE=v7`, `r_retqual` only, `W_COVGAIN=0`, τ=0.20, `n=8`), hit wall at step 236, read at ckpt 200: retr% ~5% vs baseline ~99%. Fix implemented + offline-audited; v7b pending A2. |
+| **Arm asymmetry (accepted)** | The baseline trained **before** the `tool_call_repair` JSON fix (landed 2026-07-20 18:55); M3 trains **with** it → ~2% of rollouts now retrieve where they previously got nothing. Accepted rather than burning a window on a re-baseline; the `RTHINK_RETRIEVAL_ONLY=1` ablation is the parity-matched control when it runs. **Disclose this in any writeup.** |
+
+⚠️ **Operational: concurrent jobs race on the shared tool config.** Every launcher
+`sed -i`s `retrieval_service_url` in the single shared
+`examples/sglang_multiturn/config/tool_config/search_tool_config.yaml` and restores a backup on
+exit, so two overlapping jobs repoint each other's retriever. **Fixed for
+`sbatch_run_dual_gpu_rthink.sh` only** — it now copies the config to
+`/scratch/.../verl/_tool_configs/search_tool_config.$SLURM_JOB_ID.yaml`, edits only that, and
+exports `TOOL_CONFIG` (consumed by `run_in_container_rthink.sh`); both echo a `[tool-config]` line.
+`sbatch_run_test_rthink.sh` and the `*_good.sh` launchers are **still racy** — check before running
+any two jobs concurrently. (This bit for real: `854449` and `854501` overlapped.)
+
+### Standing facts
 
 | Fact | State |
 |---|---|
 | **Corpus** | FROZEN — PI-confirmed the ~4.6% GT-in-docs rate is correct (leakage otherwise). No corpus work. |
 | **GRPO group size** | **DONE — `n=8` is set** (`run_in_container_rthink.sh`, overridable via `ROLLOUT_N`). Was `n=1` in the original code (a bug the PI confirmed and had already fixed to 8 in his own runs). Escalation ladder if under-performing: 8 → 12 → 16 — all clean at the current batch geometry, no edit needed. |
 | **Batch geometry** | **DONE — `train_batch=56`, `ppo_mini_batch=56`, `n=8`** → 448/56 = 8 clean mini-batches. ⚠️ **This roadmap previously prescribed `ppo_mini_batch=64`, which CRASHES**: `verl/workers/config/actor.py:153` raises when `train_batch(56) < ppo_mini_batch(64)`. And the divisibility rule that matters is **unasserted** anywhere in verl (`dp_actor.py:388` splits with a non-strict chunker), so a bad combo trains a ragged final mini-batch with a mis-scaled loss and no error. The launcher now pre-flights all three constraints and fails loudly. |
-| **v2–v6 history** | Confounded — all ran at `n=1` (GRPO baseline disabled). "Reward shaping never beat baseline" is **not** valid evidence against shaping. PI acknowledged this bug was in the original code. |
-| **Baseline** | The valid baseline is `n=8`. The local baseline was `n=1`; a later one was `n=5` (died at step 150); **neither is a valid comparator.** Re-run at `n=8`, 3 seeds. `run_in_container_baseline.sh` now **refuses to run** (it silently trained at n=1, producing an invalid comparator that looked legitimate in WandB); use `USE_RTHINK=0` on `run_in_container_rthink.sh` for an identical substrate. |
+| **v2–v6 history** | **DONE** -- Confounded — all ran at `n=1` (GRPO baseline disabled). "Reward shaping never beat baseline" is **not** valid evidence against shaping. PI acknowledged this bug was in the original code. |
+| **Baseline** | The valid baseline is `n=8`. The local baseline was `n=1`; a later one was `n=5` (died at step 150); **neither is a valid comparator.** Re-run at `n=8` — done (`848159`, ckpt 200); the **3-seed** part is open pending a user/PI call on whether the step-200 lock changes it. `run_in_container_baseline.sh` now **refuses to run** (it silently trained at n=1, producing an invalid comparator that looked legitimate in WandB); use `USE_RTHINK=0` on `run_in_container_rthink.sh` for an identical substrate. |
 | **Retrieval axis (`r_retqual`)** | **VALIDATED (lead).** Audit B: AUC 0.85, pearson +0.112, 15× quartile separation. PI endorsed the design ("good design… I would expect this reward design will work"). Implemented and **executed end-to-end offline** (M0 pass below), **never trained.** |
 | **`r_retqual` calibration** | **τ RE-CALIBRATED 0.30 → 0.20** (= the measured `best_sim` median). The shipped τ=0.30 sat at the ~77th percentile and penalized 3 of every 4 retrievals (mean `retqual` −0.056), so **within a GRPO group an abstaining rollout (0.0) beat a retrieving one — a retrieval-collapse incentive in the default.** See §4a. |
-| **`r_covgain` (multi-turn)** | **Deferred, W=0 for first run.** PI explicitly uncertain multi-turn helps — now also confirmed empirically: real rollouts average **~1.0 turns** (multi-query turns 0.2–3.2%), so the term is near-constant zero by construction, exactly as its AUC 0.499 implied. Resolve offline in M2. |
+| **`r_covgain` (multi-turn)** | **RETIRED — `W=0` PERMANENT (M2, 2026-07-20).** No longer merely "deferred": the M2 sweep measured later-turn **marginal coverage = 0.000** at both k=3 and k=20, on top of ~0.97 turns/rollout. The behavior it pays for does not occur and a wider turn budget does not create it. Left in the code, inert, so the ablation stays reproducible. PI's stated doubt about multi-turn is now empirically settled. |
 | **Reasoning axis** | `r_select` justified by grounding forensics (54.5% train / 6% test) — **not built.** `r_infer` **FAILED** Audit B (+0.023) → redesign via co-occurrence weighting, or drop. |
-| **GPU runs to date** | **Zero** since the `n=1` finding. The first `n=8` run is effectively the first honest test of the whole program. |
+| **GPU runs to date** | Two at `n=8`: the M1 baseline (`848159`, ckpt 200) and M3/v7 (`854501`, in flight). Everything before those was `n=1` and does not count. |
 
-**Immediate critical path:** ~~set `n=8` + batch fix~~ **(done)** → re-baseline at `n=8` ×3 seeds →
-M2 offline → P1 (`r_retqual` only, τ=0.20).
+**Immediate critical path:** ~~set `n=8` + batch fix~~ **(done)** → ~~M2 offline~~ **(done)** →
+~~launch P1/M3 (`r_retqual` only, τ=0.20)~~ **(launched `854501`)** → read both arms at **step 200**
+→ decide on baseline seeds 2–3 → M4 reasoning axis.
 
 > **Submit from a LOGIN node** — `sbatch` is not available on compute nodes.
 > ```
@@ -198,9 +261,9 @@ the design docs; this is the strategy.
 | # | Milestone | Gate to advance |
 |---|---|---|
 | **M0** | ✅ **DONE** (2026-07-16, minus eval seeding). `n=8` + batch fix (`mini=56`) + launcher pre-flight; v7 wired into the launcher (`RTHINK_MODE=v7`, `W_COVGAIN=0`, all vars in the `--env` passthrough); JSON/apostrophe prevalence **measured (2.13%)** and repaired → 0.95%; DOC-parser bug fixed; τ calibrated. **PI-code prerequisite dropped by the user.** | ✅ v7 `compute_score` executed end-to-end offline (all 14 keys, shaping math, cap + LongPAS asserted). ⏳ **Remaining: the launch gate itself** — config launches without OOM (watch first ~15 steps). ⏸️ **Deferred: eval decode seeding** — needs a `seed` field on the `RolloutConfig` dataclass (shared with training); NOT required for the ≥3-seed mean±std protocol, which works unseeded (it only adds exact replayability). |
-| **M1** | **Re-baseline RRCM at `n=8`, 3 seeds** (the real Table-1 baseline, reproduced) | stable target with seed spread. ⚠️ **"ideally reproduces the paper's ~0.0102" may not hold:** `reward_SPRec.py` pays tiers `1.0/0.8/0.5/0.1/0.001`, whereas §0's table describes the paper's reward as weighted `InTop@n` summing to `1.0/0.5/0.2/0.1/0.02`. Different shapes. The A/B stays internally valid (both arms share `reward_SPRec`), but a miss vs 0.0102 would be a **reward-definition mismatch, not a failed reproduction** — resolve before reading M1 as a negative. |
-| **M2** | Phase-1 offline: top-k 3→20 + **multi-query union-coverage** measurement; pre-register `coverage×0.5` ceiling | union-coverage gain measured (this decides `r_covgain`'s fate and answers the PI's multi-turn doubt offline). **Reuse `reward_reasoning/diagnostics_scripts/coverage_sweep.py`** — it already replays queries against the same e5+FAISS index the online retriever serves and sweeps `--ks` (defaults already span 3 and 20). Two deltas: (a) it unions *within* a rollout's queries, but the multi-turn question needs a **cumulative union across turns** with marginal gain per added turn; (b) **top-k is widened in `search_tool_config.yaml` (add `topk: 20`), not `retrieval_launch.sh`** — see §M0 defect 4. |
-| **M3** | **P1: first v7 GPU run** — `r_retqual` only (`W_COVGAIN=0`), `n=8`, **τ=0.20**; `RETRIEVAL_ONLY=1` reproduces baseline | retrieval-rate healthy; test selection / HR moves beyond seed spread. **τ/floor calibration is now largely done offline (§4a)** — the remaining job is to confirm the *training-time* `best_sim` distribution matches the offline one, and to re-centre τ on the median if the policy shifts it as it learns. |
+| **M1** | 🔄 **Re-baseline RRCM at `n=8`** (the real Table-1 baseline, reproduced). Job `848159` → ckpt **200**; eval decode `854449`. **The 3-seed requirement is OPEN** given the step-200 lock — do not spend windows on seeds 2–3 without a user/PI call. | stable target with seed spread. ⚠️ **"ideally reproduces the paper's ~0.0102" may not hold:** `reward_SPRec.py` pays tiers `1.0/0.8/0.5/0.1/0.001`, whereas §0's table describes the paper's reward as weighted `InTop@n` summing to `1.0/0.5/0.2/0.1/0.02`. Different shapes. The A/B stays internally valid (both arms share `reward_SPRec`), but a miss vs 0.0102 would be a **reward-definition mismatch, not a failed reproduction** — resolve before reading M1 as a negative. |
+| **M2** | ✅ **DONE 2026-07-20.** Phase-1 offline: top-k 3→20 + **multi-query union-coverage** measurement. **Outcomes:** `r_covgain` → `W=0` permanent (later-turn marginal coverage 0.000 @3 and @20; ~0.97 turns/rollout); `r_retqual` headroom ~2× (model queries reach GT @20 = 0.111 vs tail5 heuristic 0.197, oracle GT-query @1 = 0.894); top-k 3→20 is material for coverage (0.039→0.111) but pays only ~0.7% HR@1, so it is **its own single-variable experiment, NOT folded into M3**. Results JSON in `reward_reasoning/diagnostics/`. | ~~union-coverage gain measured~~ **met** (this decides `r_covgain`'s fate and answers the PI's multi-turn doubt offline). **Reuse `reward_reasoning/diagnostics_scripts/coverage_sweep.py`** — it already replays queries against the same e5+FAISS index the online retriever serves and sweeps `--ks` (defaults already span 3 and 20). Two deltas: (a) it unions *within* a rollout's queries, but the multi-turn question needs a **cumulative union across turns** with marginal gain per added turn; (b) **top-k is widened in `search_tool_config.yaml` (add `topk: 20`), not `retrieval_launch.sh`** — see §M0 defect 4. |
+| **M3** | 🔄 **P1: first v7 GPU run — LAUNCHED 2026-07-21, SLURM `854501`** (nodes c613-002 retriever / c635-042 training, 24h). `r_retqual` only (`W_COVGAIN=0`), `n=8`, **τ=0.20**, experiment `...-gpu-rthink-v7-n8`, log `output_rthink_v7_n8.log`. The `RETRIEVAL_ONLY=1` wiring ablation (must reproduce baseline) is **still unrun** and needs its own window. | **Read at step 200**, against `...-baseline-n8`. retrieval-rate healthy; test selection / HR moves beyond seed spread. **τ/floor calibration is now largely done offline (§4a)** — the remaining job is to confirm the *training-time* `best_sim` distribution matches the offline one, and to re-centre τ on the median if the policy shifts it as it learns. |
 | **M4** | Reasoning axis: `r_select`; `r_infer` cooc-variant re-Audit-B'd (or dropped) | selection-rate ↑; each term Audit-B-clean before training |
 | **M5** | Full sweep, 3 datasets; RQ2-style ablations + RQ3-style behavior analysis | consistent lift over outcome-only RRCM across datasets |
 

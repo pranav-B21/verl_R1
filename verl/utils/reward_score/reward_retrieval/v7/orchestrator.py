@@ -88,10 +88,24 @@ _REAL_BONUS = _envf("RTHINK_REAL_BONUS", 0.0)
 _FORMAT_GATE    = _envi("RTHINK_FORMAT_GATE",    1)
 _FORMAT_PENALTY = _envf("RTHINK_FORMAT_PENALTY", 0.5)
 
-# --- v5 length discipline (kept verbatim) ---
-_LEN_SOFT = _envi("RTHINK_LEN_SOFT", 600)
-_LEN_W    = _envf("RTHINK_LEN_W",    0.0005)
-_LEN_CAP  = _envf("RTHINK_LEN_CAP",  0.2)
+# --- length discipline (v5 base; v7b multi-turn-aware budget) ---
+# v7b: the word budget grows with the number of retrieval turns that actually
+# returned documents, because a legitimate retrieving rollout reasons twice
+# (before AND after retrieval) and so needs more model-generated words than an
+# abstaining one. Sizing (REWARD_REASONING_ANALYSIS.md Part 8 / audits):
+#   abstain (0 turns): ~239 median gen-words (docs stripped), p90 ~402 -> the
+#     600 base already covers it with headroom.
+#   +1 credited turn : jumps to ~999 median / ~1566 p90 -> needs the per-turn add.
+# Only turns that RETURNED docs are credited (a bare <tool_call> buys no budget,
+# so tool-call spam can't purchase length), capped so a few turns can't unlock
+# unlimited budget. LEN_PER_TURN is sized empirically, not to the raw marginal
+# (that would re-create the "retrieve once, ramble free" cliff of the exempt
+# option) -- see the increment discussion in Part 8. Set via env at launch.
+_LEN_SOFT     = _envi("RTHINK_LEN_SOFT", 600)
+_LEN_W        = _envf("RTHINK_LEN_W",    0.0005)
+_LEN_CAP      = _envf("RTHINK_LEN_CAP",  0.2)
+_LEN_PER_TURN = _envi("RTHINK_LEN_PER_TURN", 400)   # budget += this * credited turns
+_LEN_TURN_CAP = _envi("RTHINK_LEN_TURN_CAP", 3)     # max credited turns that add budget
 
 # --- v7 retrieval-quality shaping (NEW; replaces v3 process shaping) ---
 _RETRIEVAL_ONLY = _envi("RTHINK_RETRIEVAL_ONLY", 0)
@@ -115,12 +129,52 @@ def _ndcg_reward(rank_id, n_items) -> float:
     return _TAIL_W * (base ** _TAIL_P)
 
 
+# Tool output injected into the rollout by the retriever. It must NOT count
+# toward the length budget: the retriever returns 3-7 documents (~50-100 words
+# each) per <tool_response>, so counting it penalizes the policy for the tool's
+# verbosity, not its own. In v7 (M3) that inflated every retrieving rollout past
+# the 600-word budget, saturating len_penalty at its cap while the retrieval
+# bonus was only ~+0.004 -> retrieving became net -0.2 vs abstaining's 0 and
+# GRPO drove retrieval to extinction (retr% 99% -> 5%). See ROADMAP_v7.md and
+# REWARD_REASONING_ANALYSIS.md Part 8. The gate/self-repetition penalties are
+# tag-based, not length-based, so only this term had the ingestion bug.
+_TOOL_RESPONSE_SPAN = re.compile(r"<tool_response>.*?</tool_response>", re.S)
+# A <tool_response> that actually returned documents (vs. an empty result) --
+# _passages2string emits "Doc N (Title: ...)" per returned passage. Only these
+# credit budget, so a bare/empty tool call cannot purchase length.
+_DOC_MARKER = re.compile(r"Doc\s+\d+\s+\(Title:")
+
+
+def _policy_generated_text(text: str) -> str:
+    """Strip tool-injected <tool_response> spans so the length budget scores only
+    what the policy actually generated (<think>/<tool_call>/<answer>)."""
+    return _TOOL_RESPONSE_SPAN.sub(" ", text)
+
+
+def _credited_turns(text: str) -> int:
+    """Number of retrieval turns that RETURNED documents (empty/failed tool
+    responses do not count -- otherwise tool-call spam would buy length budget)."""
+    return sum(1 for m in _TOOL_RESPONSE_SPAN.finditer(text)
+               if _DOC_MARKER.search(m.group(0)))
+
+
 def _length_penalty(text: str) -> float:
-    """Gentle, capped penalty for responses past the soft word budget (v5)."""
+    """Gentle, capped penalty for responses past a turns-aware word budget.
+
+    v7b changes vs v5: (1) counts only policy-generated words -- the retriever's
+    returned documents are excluded (they inflate every retrieving rollout past
+    the budget and collapsed retrieval in M3); (2) the budget grows by
+    ``_LEN_PER_TURN`` for each turn that returned docs (capped at
+    ``_LEN_TURN_CAP``), because a legitimate multi-turn rollout reasons before
+    AND after each retrieval. Net effect: abstaining and legitimately-retrieving
+    rollouts are treated even-handedly, while genuine rambling (beyond the
+    per-turn budget) is still penalized.
+    """
     if _LEN_W <= 0 or _LEN_CAP <= 0:
         return 0.0
-    n_words = len(text.split())
-    excess = max(0, n_words - _LEN_SOFT)
+    budget = _LEN_SOFT + _LEN_PER_TURN * min(_credited_turns(text), _LEN_TURN_CAP)
+    n_words = len(_policy_generated_text(text).split())
+    excess = max(0, n_words - budget)
     return min(_LEN_CAP, _LEN_W * excess)
 
 

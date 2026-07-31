@@ -17,10 +17,10 @@ built by ``verl/tools/utils/search_r1_like_utils.py::_passages2string`` — one
 
 Two components:
   r_retqual : per-turn, how close the BEST retrieved doc is to the GT answer
-              (two-sided: rewards near, penalizes junk; floored below the
-              neutral threshold so a bad retrieval never costs more than
-              never retrieving at all -- see the retrieval-collapse guard
-              in ./ROADMAP_v7.md sec 4.1).
+              (ONE-SIDED as of 2026-07-25 per advisor: rewards a near-GT
+              retrieval, gives 0 -- never a penalty -- for a below-tau one, so
+              legitimate item-attribute retrieval isn't discouraged and the
+              term cannot teach "never retrieve". See ./ROADMAP_v7.md sec 4.1).
   r_covgain : rewards a LATER turn only when it beats the running-best
               similarity of earlier turns -- targets the observed 99%
               single-query collapse without rewarding retrieval-spam.
@@ -146,12 +146,17 @@ def compute_retrieval_components(
         return empty
 
     def _retqual(sim: float) -> float:
-        # Two-sided: rewards a near-GT retrieval, penalizes junk -- but the
-        # penalty below tau is damped by retqual_floor so a bad retrieval
-        # never costs more than simply not retrieving would have.
+        # ONE-SIDED (advisor Shijun Li, 2026-07-25): reward a near-GT retrieval,
+        # give exactly 0 for a below-tau retrieval -- never penalize it.
+        # Rationale: r_retqual scores only the COLLABORATIVE axis (cosine to the
+        # GT *next item*). A below-tau retrieval is often a legitimate item-
+        # ATTRIBUTE lookup (genre/artist/description), which this term cannot
+        # credit; penalizing it would discourage attribute retrieval wholesale.
+        # Removing the penalty also removes a retrieval-collapse pressure (M3).
+        # `retqual_floor` is now INERT -- kept in the signature for back-compat.
         if sim >= retqual_tau:
             return (sim - retqual_tau) / max(1e-6, 1.0 - retqual_tau)
-        return -retqual_floor * (retqual_tau - sim) / max(1e-6, retqual_tau)
+        return 0.0
 
     retqual_agg = sum(_retqual(s) for s in productive) / len(productive)
 

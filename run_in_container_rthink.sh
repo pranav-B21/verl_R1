@@ -103,10 +103,19 @@ export RTHINK_DENSE_ONLY=${RTHINK_DENSE_ONLY:-0}   # 0 = full v6; 1 = gate-only 
 export RTHINK_FORMAT_GATE=${RTHINK_FORMAT_GATE:-1}        # 1 = enable malformed-output gate
 export RTHINK_FORMAT_PENALTY=${RTHINK_FORMAT_PENALTY:-0.5} # penalty for malformed output
 
-# v5 length discipline
-export RTHINK_LEN_SOFT=${RTHINK_LEN_SOFT:-600}      # word budget before penalty
-export RTHINK_LEN_W=${RTHINK_LEN_W:-0.0005}         # penalty per word over budget
-export RTHINK_LEN_CAP=${RTHINK_LEN_CAP:-0.2}        # max length penalty
+# length discipline (v5 base; v7b multi-turn-aware budget)
+# v7b: budget only counts MODEL-generated words (<tool_response> docs stripped) and
+# grows by LEN_PER_TURN for each turn that RETURNED docs (capped at LEN_TURN_CAP),
+# because a legitimate retrieving rollout reasons before+after each retrieval. This
+# fixes the M3 collapse where counting the retriever's docs made retrieving cost
+# ~0.2 in length penalty vs ~0.004 retrieval bonus (see REWARD_REASONING_ANALYSIS
+# Part 8). LEN_PER_TURN is sized empirically (abstain ~239 gen-words; +1 turn ~999)
+# NOT to the full marginal, so a turn cannot buy free rambling budget.
+export RTHINK_LEN_SOFT=${RTHINK_LEN_SOFT:-600}          # base word budget (abstain rollouts)
+export RTHINK_LEN_W=${RTHINK_LEN_W:-0.0005}             # penalty per word over budget
+export RTHINK_LEN_CAP=${RTHINK_LEN_CAP:-0.2}            # max length penalty
+export RTHINK_LEN_PER_TURN=${RTHINK_LEN_PER_TURN:-400}  # budget added per doc-returning turn
+export RTHINK_LEN_TURN_CAP=${RTHINK_LEN_TURN_CAP:-3}    # max credited turns that add budget
 
 # Shaping scale/cap — shared by v3-v7. CAP < the 0.1 smallest answer-tier gap, so shaping
 # can only break ties WITHIN a correctness band, never rank a wrong answer above a right one.
@@ -114,8 +123,12 @@ export RTHINK_SCALE=${RTHINK_SCALE:-0.10}   # scale of R_think_raw before clippi
 export RTHINK_CAP=${RTHINK_CAP:-0.08}       # absolute cap on applied shaping (< 0.1 tier gap)
 
 # v7 retrieval-quality shaping (RTHINK_MODE=v7). Per turn: sim = max cosine(retrieved doc, GT);
-# above tau it pays up to +1, below tau it penalizes down to -floor. A rollout that never
-# retrieves scores 0 (neutral) — abstention is not scored by this term.
+# above tau it pays up to +1. ONE-SIDED as of 2026-07-25 (advisor Shijun Li): a below-tau
+# retrieval scores 0, NOT a penalty — r_retqual only sees the collaborative axis (cosine to
+# the GT next item), and a below-tau retrieval is often a legitimate item-ATTRIBUTE lookup, so
+# penalizing it would suppress attribute retrieval. A rollout that never retrieves also scores 0
+# (neutral). RTHINK_RETQUAL_FLOOR is now INERT (kept for back-compat). This also removes a
+# retrieval-collapse pressure, complementing the len_penalty fix (see below).
 #
 # tau CALIBRATED OFFLINE 2026-07-16 against 400 real v3@300 rollouts (was 0.30, the design's
 # admittedly uncalibrated guess). Measured best_sim: mean 0.217, median 0.203, p75 0.291.
@@ -135,7 +148,7 @@ export RTHINK_CAP=${RTHINK_CAP:-0.08}       # absolute cap on applied shaping (<
 # calibration knob, not the signal. Re-check against the training-time best_sim log: if the
 # distribution shifts as the policy learns, the median moves and tau should follow.
 export RTHINK_RETQUAL_TAU=${RTHINK_RETQUAL_TAU:-0.20}     # neutral cosine threshold (= measured median)
-export RTHINK_RETQUAL_FLOOR=${RTHINK_RETQUAL_FLOOR:-0.25} # damps the below-tau penalty
+export RTHINK_RETQUAL_FLOOR=${RTHINK_RETQUAL_FLOOR:-0.25} # INERT since 2026-07-25 (one-sided retqual, no below-tau penalty)
 export RTHINK_W_RETQUAL=${RTHINK_W_RETQUAL:-0.6}          # weight of retqual_agg
 # DEFERRED to 0 for the first run: covgain scored AUC 0.499 (chance) in the correlation audit
 # because it only fires when a LATER turn beats an earlier one, and 99% of rollouts issue a
@@ -188,7 +201,11 @@ echo "[pre-flight] batch geometry OK: ${TRAIN_BATCH} x n=${ROLLOUT_N} = ${real_t
 
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
 CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
-TOOL_CONFIG="$CONFIG_PATH/tool_config/search_tool_config.yaml"
+# The launcher exports TOOL_CONFIG pointing at a JOB-SCOPED copy of the tool config, so
+# concurrent jobs don't race on retrieval_service_url in the shared file (see
+# sbatch_run_dual_gpu_rthink.sh). Fall back to the shared path for standalone runs.
+TOOL_CONFIG="${TOOL_CONFIG:-$CONFIG_PATH/tool_config/search_tool_config.yaml}"
+echo "[tool-config] using $TOOL_CONFIG -> $(grep -m1 'retrieval_service_url' "$TOOL_CONFIG" 2>/dev/null)"
 
 # Build resume overrides. If CHECKPOINT_PATH is set (e.g. via sbatch env), pin to
 # that specific step; otherwise fall back to resume_mode=auto which scans
@@ -287,6 +304,6 @@ singularity exec --nv \
         trainer.experiment_name=$EXPERIMENT_NAME \
         trainer.total_epochs=22 \
         trainer.default_local_dir=/scratch/11138/pranavbelligundu/verl/$EXPERIMENT_NAME \
-        actor_rollout_ref.rollout.multi_turn.tool_config_path=$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml \
+        actor_rollout_ref.rollout.multi_turn.tool_config_path=$TOOL_CONFIG \
         "${extra_overrides[@]}" \
     2>&1 | tee $EXPERIMENT_NAME.log

@@ -1001,6 +1001,19 @@ class SGLangRollout(BaseRollout):
                                 except Exception:
                                     normed_content = content
                                     tool_calls = []
+                                if tool_calls:
+                                    # Logged at WARNING because this module's logger defaults to
+                                    # WARN (line 89), and this marker is the ONLY way to tell from
+                                    # a run log whether the repair is active: sglang emits its
+                                    # "Failed to parse JSON part" warning *before* this code runs,
+                                    # so that message appears with or without the repair. Grep the
+                                    # two counts to get the live recovery rate:
+                                    #   grep -c "Failed to parse JSON part"  (denominator)
+                                    #   grep -c "TOOL_CALL_REPAIR recovered" (numerator)
+                                    logger.warning(
+                                        "TOOL_CALL_REPAIR recovered %d tool call(s) from malformed JSON",
+                                        len(tool_calls),
+                                    )
                         if self._limit_tool_calls_to_one and len(tool_calls) > 1:
                             logger.warning(
                                 "Model produced %d tool calls in one message; only the first will be kept "

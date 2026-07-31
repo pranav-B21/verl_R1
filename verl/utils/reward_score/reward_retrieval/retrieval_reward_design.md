@@ -66,23 +66,45 @@ This document is the concrete design; the implementation is in `v7/`.
   headroom quantified (model queries reach GT @20 = 0.111 vs a trivial tail5
   heuristic's 0.197 — ~2× room, all inside the frozen corpus, §4b); top-k 3→20
   carved out as a separate single-variable experiment (~0.7% HR@1, §8).
-- **M1 baseline re-run at `n=8` is in flight:** the first attempt died at SLURM
-  wall-time at step 100; resumed from `global_step_100` (verified n=8, outcome-only
-  `reward_SPRec` routing) and climbing toward the ≥300 comparison point.
-- Offline checks only so far for the reward itself: `py_compile`, dispatcher
-  resolves `v7` (`RTHINK_MODE=v7` routes to `reward_retrieval.v7` from
-  `reward_reasoning/__init__.py`). **No GPU run of `v7` yet** — see §8.
+- **M1 baseline at `n=8` — trained, comparison step LOCKED at 200.** The first
+  attempt died at SLURM wall-time at step 100; resumed as job `848159` from
+  `global_step_100` (verified n=8, outcome-only `reward_SPRec` routing) and died
+  again at wall-time having reached step 220, with a checkpoint at
+  `global_step_200`. **The ≥300 comparison point in earlier drafts is superseded:
+  every arm is read at step 200.** Eval decode is job `854449`.
+- **M3 / P1 — READ 2026-07-24: retrieval COLLAPSED ❌ (SLURM `854501`).** v7 read at
+  ckpt 200 vs baseline: retr% **~5%** vs ~99%, HR a tie inside decode noise. Two
+  collapse pressures found + fixed: (1) `len_penalty` counted the retriever's docs
+  and the model's post-retrieval reasoning → now docs-stripped + turns-aware budget
+  (`RTHINK_LEN_PER_TURN`, `RTHINK_LEN_TURN_CAP`); (2) the below-τ junk penalty →
+  removed, `r_retqual` now one-sided (advisor, see §4 formula note). Fix offline-
+  audited (`audits/offline_reward_replay.py`). **Pending A2** (pre-collapse ckpt
+  100/150 decodes, jobs 865934/865935) to lock the length increment + size the
+  boost, then **v7b** (more steps, multi-node — 200 was undertrained). Full writeup:
+  root `REWARD_REASONING_ANALYSIS.md` Part 8 / `TEST_OUTPUT.md`.
 
 **Planned / open (§8 has the full list):**
-- **Set `rollout.n=8` and get the PI's newer code** before the first GPU run —
-  every prior run trained at `n=1` (GRPO with no group-relative baseline); the PI
-  fixed this to 8 in his own runs but never pushed it. The A/B baseline must be
-  **re-run at `n=8`** (it reproduces the paper's Table-1 baseline for the first
-  time), never compared to the old `n=1` baseline. See §9.2 P1.
-- First GPU run: log the `best_sim` distribution and sanity-check `τ`/`floor`
-  against it (currently uncalibrated starting points, not fit values).
-- Confirm turn/response pairing assumptions hold in practice (rare malformed
-  turns, multi-query-per-turn scoring) against real rollout logs.
+- ~~**Set `rollout.n=8`**~~ **done** — both arms train at `n=8`; the old `n=1`
+  and `n=5` runs remain invalid comparators and must never be quoted.
+- ~~**Re-centre τ on the training-time `best_sim` median.**~~ **SUPERSEDED
+  2026-07-25.** M3 showed the collapse was *not* a τ problem — a ±0.08-capped
+  shaping term cannot out-bid a 0.2 length penalty at any τ. With `r_retqual` now
+  one-sided (no below-τ penalty), τ is only a boost threshold; keep τ=0.20. The
+  binding fixes were the length penalty + removing the junk penalty, not τ.
+- **Run the `RTHINK_RETRIEVAL_ONLY=1` wiring ablation.** It is a P1 gate item
+  ("must reproduce the outcome-only curve exactly"), still unrun, and needs its
+  own SLURM window. It is also the parity-matched control for the JSON-fix arm
+  asymmetry below.
+- **Arm asymmetry to disclose:** the M1 baseline trained *before* the
+  `verl/utils/tool_call_repair.py` fix landed (2026-07-20 18:55); M3 trains
+  *with* it, so ~2% of rollouts retrieve where they previously retrieved
+  nothing. Accepted deliberately over spending a window on a re-baseline, but it
+  lands on the retrieval axis — exactly what v7 claims to improve — so it must
+  be stated in any writeup, not buried.
+- ~~Confirm turn/response pairing assumptions hold in practice~~ **done offline**
+  in the M0 pass (§8): the `DOC` terminator bug that silently dropped the last
+  doc of every response was found and fixed there; parser recall is now 100% and
+  the reward and Audit-B parsers agree exactly.
 - If `v7` alone doesn't move held-out HR, the roadmap's **reasoning/selection
   axis** (`r_infer`, `r_select`; `v7/ROADMAP_v7.md` §3) is the queued follow-on.
   Under the corpus-fixed roadmap this is *no longer* corpus-dependent — `r_infer`
@@ -172,22 +194,35 @@ document, compute the cosine similarity of the ground-truth answer to the
 one good hit in a batch of 3 is what "good retrieval" means here, matching
 how the outcome reward already only needs the GT to appear *once*).
 
+> **⚠️ SUPERSEDED 2026-07-25 (advisor Shijun Li) — `r_retqual` is now ONE-SIDED.**
+> The below-τ penalty branch shown below is **removed**: a below-τ retrieval scores
+> **0, never negative**. The current code (`v7/retrieval.py::_retqual`) is:
+> ```
+> r_retqual(sim) = (sim − τ) / (1 − τ)   if sim ≥ τ
+>                = 0                       if sim <  τ
+> ```
+> Reason: this term scores only the *collaborative* axis (cosine to the GT next
+> item), but retrieval also serves legitimate item-*attribute* lookup, which
+> scores low — penalizing it would suppress attribute retrieval. `RTHINK_RETQUAL_FLOOR`
+> is now **INERT** (kept for back-compat). This also removes one of the two
+> retrieval-collapse pressures found in M3 (the other was the length penalty —
+> see the ROADMAP 07-25 update + `REWARD_REASONING_ANALYSIS.md` Part 8). The
+> two-sided text below is retained only as design history.
+
 ```
 sim_t = max_i cos( emb(doc_i), emb(GT) )        for turn t
 
 r_retqual(sim) = (sim − τ) / (1 − τ)             if sim ≥ τ
-               = −floor · (τ − sim) / τ          if sim <  τ
+               = −floor · (τ − sim) / τ          if sim <  τ    # REMOVED 2026-07-25 -> 0
 
 retqual_agg = mean over turns with ≥1 doc of r_retqual(sim_t)
 ```
 
 `τ` (`RTHINK_RETQUAL_TAU`, default 0.30) is the neutral threshold: above it,
 retrieval is rewarded up to +1 at a perfect match; below it, retrieval is
-penalized down to `−floor` at similarity 0. `floor`
-(`RTHINK_RETQUAL_FLOOR`, default 0.25) intentionally damps the downside —
-the roadmap's retrieval-collapse guard applies here too: if junk retrieval
-were penalized symmetrically, the cheapest way to avoid the penalty is to
-stop retrieving altogether, which is not the behavior we want to teach. A
+~~penalized down to `−floor` at similarity 0~~ **now scored 0 (one-sided; see the
+superseded note above)**. `floor` (`RTHINK_RETQUAL_FLOOR`, default 0.25) ~~damps
+the downside~~ **is inert** — the below-τ penalty it damped no longer exists. A
 rollout that never retrieves anything gets `retqual_agg = 0.0` (neutral, not
 rewarded, not penalized) — abstention is not scored by this term; whether
 retrieval was *needed* is already reflected in `r_answer`.
@@ -333,13 +368,15 @@ up in training metrics/dashboards for free.
 |---|---|---|
 | `RTHINK_MODE=v7` \| `7` | — | selects this version |
 | `RTHINK_RETQUAL_TAU` | **0.20** | neutral cosine-similarity threshold. **Calibrated 2026-07-16** from 0.30 → 0.20 = the measured `best_sim` median (§4a); 0.30 penalized 77% of retrievals and made abstention win inside a GRPO group. |
-| `RTHINK_RETQUAL_FLOOR` | 0.25 | damping on the below-`τ` penalty (0 = no penalty for junk, 1 = symmetric). Still uncalibrated, but only scales the downside. |
+| `RTHINK_RETQUAL_FLOOR` | 0.25 | **INERT since 2026-07-25** — `r_retqual` is one-sided (no below-τ penalty), so this no longer scales anything. Kept for back-compat. |
 | `RTHINK_W_RETQUAL` | 0.6 | weight of `retqual_agg` in the shaping sum |
 | `RTHINK_W_COVGAIN` | **0.0** | weight of `covgain_agg` in the shaping sum. **Deferred → the launcher now defaults it to 0** (was 0.4): PI-uncertain, AUC 0.499, and real rollouts average ~1.0 turns so the term is near-constant zero by construction. |
 | `RTHINK_SCALE` | 0.10 | overall shaping scale (kept from v6) |
 | `RTHINK_CAP` | 0.08 | absolute shaping cap (kept from v6) |
 | `RTHINK_RETRIEVAL_ONLY` | 0 | 1 → disable retrieval shaping (outcome-only ablation) |
-| `RTHINK_HIT_K`, `RTHINK_TAIL_W`, `RTHINK_TAIL_P`, `RTHINK_REAL_BONUS`, `RTHINK_FORMAT_GATE`, `RTHINK_FORMAT_PENALTY`, `RTHINK_LEN_SOFT`, `RTHINK_LEN_W`, `RTHINK_LEN_CAP` | (v6 defaults) | outcome/format/length machinery, unchanged from v6 |
+| `RTHINK_LEN_PER_TURN` | **400** (= measured 396 words/turn OLS slope on clean pre-collapse A2 data, 2026-07-25) | **v7b:** word-budget added per **doc-returning** turn (`len` counts model-generated words only, `<tool_response>` stripped). Fixes the M3 length-driven collapse; the clean gate PASSES with it (retrieve−abstain −0.029→+0.023). See ROADMAP 07-25 + REWARD_REASONING_ANALYSIS §8.5. |
+| `RTHINK_LEN_TURN_CAP` | 3 | max credited turns that add budget (anti-hack: a few turns can't unlock unlimited budget) |
+| `RTHINK_HIT_K`, `RTHINK_TAIL_W`, `RTHINK_TAIL_P`, `RTHINK_REAL_BONUS`, `RTHINK_FORMAT_GATE`, `RTHINK_FORMAT_PENALTY`, `RTHINK_LEN_SOFT`, `RTHINK_LEN_W`, `RTHINK_LEN_CAP` | (v6 defaults) | outcome/format machinery unchanged from v6; **`RTHINK_LEN_SOFT` is now the *base* budget** for the turns-aware total above |
 
 Note: an earlier roadmap draft sketched a different naming scheme (`RET_SPACE`,
 `R_GROUND_W`, `R_RETQUAL_W`, ...) for the now-superseded CF-corpus-dependent
@@ -455,7 +492,7 @@ roadmap Phase-1 lever measured offline, not a reward term.)
 | Phase | Work | Status | Gate to advance |
 |---|---|---|---|
 | **P0** | **Audit B** for `r_retqual`/`r_covgain`: score on logged rollouts, correlate with `InTop@n` hit | **BUILT + RUN** (`audits/correlation_audit.py`, 2026-07-15) — `r_retqual` **PASS** (pearson **+0.112**, AUC 0.85 vs `InTop@10`); PI endorsed the design | ✅ cleared the ~0.1 v2-tripwire bar; retrieval axis green-lit for the P1 GPU run |
-| **P1** | **First GPU run of the shipped `v7`** (`r_retqual` only, `W_COVGAIN=0`): calibrate `τ`/`floor`, verify wiring | code ready, **not run** | **`rollout.n=8` (PI-canonical; every past run was `n=1` = no GRPO baseline — a bug the PI already fixed to 8 but never pushed; get his code, re-check batch divisibility, escalation 8→12→16)**; **baseline re-run at `n=8`** (reproduces the paper's real Table-1 baseline; never compare to the old `n=1` run); `RTHINK_RETRIEVAL_ONLY=1` reproduces the outcome-only curve exactly; `best_sim` distribution sane; parsing assumptions (§8) confirmed on real logs |
+| **P1** | **First GPU run of the shipped `v7`** (`r_retqual` only, `W_COVGAIN=0`): calibrate `τ`/`floor`, verify wiring | 🔄 **RUNNING — SLURM `854501`, launched 2026-07-21** (τ=0.20, `n=8`, experiment `...-gpu-rthink-v7-n8`, log `output_rthink_v7_n8.log`). The `RTHINK_RETRIEVAL_ONLY=1` wiring ablation in the gate column is **still unrun** and needs its own window. | **`rollout.n=8` (PI-canonical; every past run was `n=1` = no GRPO baseline — a bug the PI already fixed to 8 but never pushed; get his code, re-check batch divisibility, escalation 8→12→16)**; **baseline re-run at `n=8`** (reproduces the paper's real Table-1 baseline; never compare to the old `n=1` run); `RTHINK_RETRIEVAL_ONLY=1` reproduces the outcome-only curve exactly; `best_sim` distribution sane; parsing assumptions (§8) confirmed on real logs |
 | **P2** | **`r_memtype`** — credit retrieving the memory type that actually surfaced GT-relevant evidence for the instance (roadmap §3.1) | **not built** | passes Audit B; memory-type parse validated; attributable in ablation |
 | **P3** | **`r_when`** — small credit for not retrieving when correct without it / retrieving when needed (roadmap §3.1) | **not built** | passes Audit B; retrieval-rate stays healthy (no collapse) |
 | **P4** | **Eval + ablations** for the policy axis (roadmap §6): RQ2-style per-term ablation, RQ3-style behavior analysis, ≥3 seeds, all 3 datasets | **not built** | consistent lift over outcome-only RRCM across datasets, beyond seed spread |

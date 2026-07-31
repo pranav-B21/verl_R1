@@ -1,5 +1,22 @@
 # v7 — retrieval-quality reward (the PI's proposal)
 
+## Status (2026-07-21)
+
+| | |
+|---|---|
+| **Live term** | `r_retqual` only, at `RTHINK_RETQUAL_TAU=0.20` |
+| **Retired** | `r_covgain` — `W=0` **permanently** (M2 measurement, see below) |
+| **First GPU run** | **M3 launched 2026-07-21, SLURM `854501`** — `RTHINK_MODE=v7`, `W_COVGAIN=0`, τ=0.20, `n=8`, experiment `nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v7-n8` |
+| **A/B partner** | `...-gpu-baseline-n8` (outcome-only `reward_SPRec`, same launcher, same substrate). **Compare at step 200** — both arms locked there. |
+| **Not built** | `r_memtype` (P2), `r_when` (P3), ablation/behavior tooling (P4), and the `RTHINK_RETRIEVAL_ONLY=1` wiring-ablation *run* |
+
+⚠️ **Known arm asymmetry:** the baseline arm trained *before* the
+`tool_call_repair` JSON fix landed (2026-07-20 18:55); this v7 run trains
+*with* it, so ~2% of rollouts retrieve where they previously retrieved
+nothing. Accepted deliberately rather than spending a window on a re-baseline.
+The planned `RTHINK_RETRIEVAL_ONLY=1` ablation runs on this same fixed
+substrate and is the parity-matched control when it happens.
+
 ## Why this exists
 
 The v6 plateau was diagnosed as retrieval-bound, and an earlier roadmap
@@ -32,17 +49,31 @@ The one substantive change: v3's reasoning-quality process shaping
 (`tool_use` / `grounding` / `synthesis` / `self_rep`) is replaced by
 `retrieval.py`'s retrieval-quality shaping:
 
-- **`r_retqual`** — per retrieval turn, cosine similarity between the
-  best-matching retrieved document and the ground-truth answer, two-sided:
-  rewarded above a neutral threshold (`RTHINK_RETQUAL_TAU`), penalized below
-  it but damped (`RTHINK_RETQUAL_FLOOR`) so a junk retrieval never costs more
-  than simply not retrieving would have — this guards against the "safe
-  policy = never retrieve" collapse called out in `ROADMAP_v7.md` §4.1.
-- **`r_covgain`** — credits a *later* turn only when it beats the
-  running-best similarity from earlier turns in the same rollout. This
-  targets the measured 99% single-query collapse directly: spamming more
-  queries earns nothing unless a later one actually finds something closer
-  to the answer than what was already found.
+- **`r_retqual`** — **the live term.** Per retrieval turn, cosine similarity
+  between the best-matching retrieved document and the ground-truth answer,
+  two-sided: rewarded above a neutral threshold (`RTHINK_RETQUAL_TAU`),
+  penalized below it but damped (`RTHINK_RETQUAL_FLOOR`) so a junk retrieval
+  never costs more than simply not retrieving would have — this guards
+  against the "safe policy = never retrieve" collapse called out in
+  `ROADMAP_v7.md` §4.1. **τ was re-calibrated 0.30 → 0.20** (the measured
+  `best_sim` median) before the first GPU run: the shipped 0.30 sat at the
+  ~77th percentile, gave a mean `retqual` of −0.056, and therefore made an
+  abstaining rollout (exactly 0.0) beat a retrieving one *inside its own
+  GRPO group* — i.e. the default actively taught retrieval collapse. This
+  does not affect Audit B, since `retqual` is monotone in `best_sim` and the
+  AUC is τ-invariant.
+- **`r_covgain`** — **IMPLEMENTED BUT RETIRED TO `W=0` PERMANENTLY (M2,
+  2026-07-20). Do not re-enable without new evidence.** It credits a *later*
+  turn only when it beats the running-best similarity from earlier turns in
+  the same rollout, which was meant to target the measured 99% single-query
+  collapse without rewarding retrieval-spam. The M2 offline coverage sweep
+  killed it on measurement, not on theory: rollouts average **~0.97 turns**,
+  and the marginal coverage of a later turn is **0.000** at both k=3 and
+  k=20 — the behavior it pays for essentially does not occur, and widening
+  the turn budget does not make it occur. It is left in the code (inert at
+  `RTHINK_W_COVGAIN=0`) rather than deleted, so the ablation story stays
+  reproducible. See `ROADMAP_v7.md` M2 and
+  `../retrieval_reward_design.md` §4.
 
 Both are computed purely from `solution_str` — the text the model already
 produced, including what the retrieval tool already returned into the
