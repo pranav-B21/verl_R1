@@ -22,6 +22,7 @@ Entry point
 ``compute_score(...)`` dispatches to the iteration selected by the ``RTHINK_MODE``
 environment variable (default ``v3``):
 
+    RTHINK_MODE=v8            -> reward_retrieval.v8.compute_score  (selection reward)
     RTHINK_MODE=v7            -> reward_retrieval.v7.compute_score
     RTHINK_MODE=v6            -> v6.compute_score
     RTHINK_MODE=v5            -> v5.compute_score
@@ -45,6 +46,7 @@ _MODE_ALIASES = {
     "v5": "v5", "5": "v5",
     "v6": "v6", "6": "v6",
     "v7": "v7", "7": "v7",
+    "v8": "v8", "8": "v8",
 }
 
 
@@ -59,6 +61,8 @@ def compute_score(solution_str, ground_truth, data_source,
     mode = _resolve_mode()
     if mode == "v2":
         from .v2 import compute_score as _impl
+    elif mode == "v8":
+        from ..reward_retrieval.v8 import compute_score as _impl
     elif mode == "v7":
         from ..reward_retrieval.v7 import compute_score as _impl
     elif mode == "v4":

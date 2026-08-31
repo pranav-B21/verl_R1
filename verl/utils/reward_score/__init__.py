@@ -104,7 +104,13 @@ def default_compute_score(
     
     elif ("amazon" in data_source or "goodreads" in data_source or "movie" in data_source):
         import os
-        if os.environ.get("USE_RTHINK", "0") == "1" or os.environ.get("USE_REWARD_B", "0") == "1":
+        if os.environ.get("RRCM_REWARD_MODE", "").lower() == "paper":
+            from . import reward_rrcm_paper
+
+            res = reward_rrcm_paper.compute_score(
+                solution_str, ground_truth, data_source, extra_info=extra_info
+            )
+        elif os.environ.get("USE_RTHINK", "0") == "1" or os.environ.get("USE_REWARD_B", "0") == "1":
             # Versioned reasoning reward; RTHINK_MODE selects the iteration
             # (default v3 = evidence-grounded process reward; v2/legacy = old).
             from . import reward_reasoning
