@@ -1,0 +1,84 @@
+{
+  "label": "baseline-metafix@200 (REPAIRED corpus)",
+  "files": [
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/greedy1_2026-08-26/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/greedy2_2026-08-26/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/greedy3_2026-08-26/test_predictions.json"
+  ],
+  "n_rollouts": 3000,
+  "n_dropped_target_not_in_catalog": 51,
+  "n_catalog_items": 13079,
+  "unpaired": {
+    "n_meta": 1539,
+    "n_plain": 1410,
+    "hr@1": {
+      "meta": 0.00649772579597141,
+      "plain": 0.0028368794326241137,
+      "diff": 0.003660846363347296
+    },
+    "hr@5": {
+      "meta": 0.00649772579597141,
+      "plain": 0.006382978723404255,
+      "diff": 0.00011474707256715466
+    },
+    "hr@10": {
+      "meta": 0.007797270955165692,
+      "plain": 0.009929078014184398,
+      "diff": -0.002131807059018706
+    },
+    "ndcg@5": {
+      "meta": 0.00649772579597141,
+      "plain": 0.004554906332515277,
+      "diff": 0.001942819463456133
+    },
+    "reward": {
+      "meta": 0.008235217673814165,
+      "plain": 0.00839645390070922,
+      "diff": -0.0001612362268950552
+    }
+  },
+  "paired": {
+    "n_prompts_discordant": 136,
+    "n_prompts_total": 983,
+    "hr@1": {
+      "mean_diff": -0.003676470588235294,
+      "ci95": [
+        -0.011029411764705883,
+        0.0
+      ],
+      "n": 136
+    },
+    "hr@5": {
+      "mean_diff": -0.003676470588235294,
+      "ci95": [
+        -0.011029411764705883,
+        0.0
+      ],
+      "n": 136
+    },
+    "hr@10": {
+      "mean_diff": -0.003676470588235294,
+      "ci95": [
+        -0.011029411764705883,
+        0.0
+      ],
+      "n": 136
+    },
+    "ndcg@5": {
+      "mean_diff": -0.003676470588235294,
+      "ci95": [
+        -0.011029411764705883,
+        0.0
+      ],
+      "n": 136
+    },
+    "reward": {
+      "mean_diff": -0.005150735294117647,
+      "ci95": [
+        -0.013981617647058823,
+        0.0
+      ],
+      "n": 136
+    }
+  }
+}

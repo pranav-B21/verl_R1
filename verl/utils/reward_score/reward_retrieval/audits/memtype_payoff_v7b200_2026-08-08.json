@@ -1,0 +1,84 @@
+{
+  "label": "v7b@200 (3 decodes)",
+  "files": [
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v7b-n8/global_step_200/decode1_2026-07-29/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v7b-n8/global_step_200/decode2_2026-07-29/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v7b-n8/global_step_200/decode3_2026-07-29/test_predictions.json"
+  ],
+  "n_rollouts": 3000,
+  "n_dropped_target_not_in_catalog": 51,
+  "n_catalog_items": 13079,
+  "unpaired": {
+    "n_meta": 526,
+    "n_plain": 2423,
+    "hr@1": {
+      "meta": 0.0,
+      "plain": 0.0012381345439537762,
+      "diff": -0.0012381345439537762
+    },
+    "hr@5": {
+      "meta": 0.0019011406844106464,
+      "plain": 0.0020635575732562937,
+      "diff": -0.00016241688884564734
+    },
+    "hr@10": {
+      "meta": 0.0038022813688212928,
+      "plain": 0.0024762690879075525,
+      "diff": 0.0013260122809137403
+    },
+    "ndcg@5": {
+      "meta": 0.0007354616107120562,
+      "plain": 0.0017048822755144275,
+      "diff": -0.0009694206648023713
+    },
+    "reward": {
+      "meta": 0.0044068441064638786,
+      "plain": 0.0034135369376805617,
+      "diff": 0.0009933071687833169
+    }
+  },
+  "paired": {
+    "n_prompts_discordant": 391,
+    "n_prompts_total": 983,
+    "hr@1": {
+      "mean_diff": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "n": 391
+    },
+    "hr@5": {
+      "mean_diff": -0.0012787723785166241,
+      "ci95": [
+        -0.0038363171355498722,
+        0.0
+      ],
+      "n": 391
+    },
+    "hr@10": {
+      "mean_diff": 0.0,
+      "ci95": [
+        -0.005115089514066497,
+        0.00639386189258312
+      ],
+      "n": 391
+    },
+    "ndcg@5": {
+      "mean_diff": -0.0006393861892583121,
+      "ci95": [
+        -0.0019181585677749361,
+        0.0
+      ],
+      "n": 391
+    },
+    "reward": {
+      "mean_diff": 5.115089514066464e-06,
+      "ci95": [
+        -0.0034526854219948853,
+        0.0037391304347826086
+      ],
+      "n": 391
+    }
+  }
+}

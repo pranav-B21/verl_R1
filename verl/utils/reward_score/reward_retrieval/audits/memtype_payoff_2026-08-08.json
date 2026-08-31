@@ -1,0 +1,84 @@
+{
+  "label": "baseline-n8@200",
+  "files": [
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode1_2026-08-01/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode2_2026-08-01/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode3_2026-08-01/test_predictions.json"
+  ],
+  "n_rollouts": 3000,
+  "n_dropped_target_not_in_catalog": 51,
+  "n_catalog_items": 13079,
+  "unpaired": {
+    "n_meta": 1254,
+    "n_plain": 1695,
+    "hr@1": {
+      "meta": 0.0,
+      "plain": 0.0005899705014749262,
+      "diff": -0.0005899705014749262
+    },
+    "hr@5": {
+      "meta": 0.003987240829346092,
+      "plain": 0.0017699115044247787,
+      "diff": 0.0022173293249213135
+    },
+    "hr@10": {
+      "meta": 0.007177033492822967,
+      "plain": 0.0017699115044247787,
+      "diff": 0.005407121988398188
+    },
+    "ndcg@5": {
+      "meta": 0.001932184551667972,
+      "plain": 0.001190432189266076,
+      "diff": 0.0007417523624018959
+    },
+    "reward": {
+      "meta": 0.006334130781499203,
+      "plain": 0.0026896755162241887,
+      "diff": 0.0036444552652750146
+    }
+  },
+  "paired": {
+    "n_prompts_discordant": 701,
+    "n_prompts_total": 983,
+    "hr@1": {
+      "mean_diff": -0.0007132667617689016,
+      "ci95": [
+        -0.0021398002853067048,
+        0.0
+      ],
+      "n": 701
+    },
+    "hr@5": {
+      "mean_diff": 0.0007132667617689016,
+      "ci95": [
+        -0.0042796005706134095,
+        0.006419400855920114
+      ],
+      "n": 701
+    },
+    "hr@10": {
+      "mean_diff": 0.003566333808844508,
+      "ci95": [
+        -0.0028530670470756064,
+        0.010699001426533523
+      ],
+      "n": 701
+    },
+    "ndcg@5": {
+      "mean_diff": -8.031789858798947e-05,
+      "ci95": [
+        -0.0028188634785868095,
+        0.002673856934612286
+      ],
+      "n": 701
+    },
+    "reward": {
+      "mean_diff": 0.001781740370898716,
+      "ci95": [
+        -0.0029950071326676183,
+        0.006777460770328103
+      ],
+      "n": 701
+    }
+  }
+}

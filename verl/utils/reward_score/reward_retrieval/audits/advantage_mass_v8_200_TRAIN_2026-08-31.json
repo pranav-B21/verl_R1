@@ -1,0 +1,50 @@
+{
+  "label": "v8-metafix@200 TRAIN (G0-A2, temp1.0 top_p1.0, 8 groups)",
+  "weights": "as_run",
+  "files": [
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v8-n8-metafix/global_step_200/traindiag1_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v8-n8-metafix/global_step_200/traindiag2_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v8-n8-metafix/global_step_200/traindiag3_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v8-n8-metafix/global_step_200/traindiag4_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v8-n8-metafix/global_step_200/traindiag5_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v8-n8-metafix/global_step_200/traindiag6_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v8-n8-metafix/global_step_200/traindiag7_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v8-n8-metafix/global_step_200/traindiag8_2026-08-30/test_predictions.json"
+  ],
+  "n_groups": 984,
+  "catalog_n": 13079,
+  "out_tol": 0.01,
+  "census": {
+    "outcome_exact_dead": 33,
+    "outcome_negligible": 351,
+    "shaping_dominated": 287,
+    "fully_dead": 33,
+    "base_dead": 291
+  },
+  "out_spread_median": 0.3307187067942424,
+  "out_spread_p90": 0.4841229177731228,
+  "out_spread_p99": 0.4999999833436322,
+  "mass": {
+    "std_dead": 1932.6028,
+    "std_live": 4296.6578,
+    "nostd_dead": 62.0964,
+    "nostd_live": 1898.9615,
+    "base_std": 4674.3575,
+    "base_nostd": 1865.946
+  },
+  "dead_share_std": 0.31025,
+  "dead_share_nostd": 0.03166,
+  "component_l1": {
+    "out": 4348.2572,
+    "shape": 1855.1371,
+    "len_pen": 8.2325,
+    "fmt_pen": 181.2455
+  },
+  "component_share": {
+    "out": 0.68017,
+    "shape": 0.29019,
+    "len_pen": 0.00129,
+    "fmt_pen": 0.02835
+  },
+  "gate_pass": false
+}

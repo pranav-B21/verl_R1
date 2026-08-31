@@ -1,0 +1,50 @@
+{
+  "label": "baseline-metafix@200 TRAIN (G0-A2, temp1.0 top_p1.0, 8 groups)",
+  "weights": "as_run",
+  "files": [
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/traindiag1_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/traindiag2_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/traindiag3_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/traindiag4_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/traindiag5_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/traindiag6_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/traindiag7_2026-08-30/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8-metafix/global_step_200/traindiag8_2026-08-30/test_predictions.json"
+  ],
+  "n_groups": 984,
+  "catalog_n": 13079,
+  "out_tol": 0.01,
+  "census": {
+    "outcome_exact_dead": 0,
+    "outcome_negligible": 760,
+    "shaping_dominated": 774,
+    "fully_dead": 0,
+    "base_dead": 567
+  },
+  "out_spread_median": 8.100039636674744e-05,
+  "out_spread_p90": 0.33071867711019515,
+  "out_spread_p99": 0.48411320200489044,
+  "mass": {
+    "std_dead": 4784.7126,
+    "std_live": 1256.3541,
+    "nostd_dead": 845.9482,
+    "nostd_live": 572.648,
+    "base_std": 2405.0598,
+    "base_nostd": 546.4818
+  },
+  "dead_share_std": 0.79203,
+  "dead_share_nostd": 0.59633,
+  "component_l1": {
+    "out": 1037.8534,
+    "shape": 1189.1711,
+    "len_pen": 2804.6218,
+    "fmt_pen": 2823.6658
+  },
+  "component_share": {
+    "out": 0.13212,
+    "shape": 0.15138,
+    "len_pen": 0.35704,
+    "fmt_pen": 0.35946
+  },
+  "gate_pass": true
+}

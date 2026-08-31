@@ -1,5 +1,13 @@
 # RRCM Journal Extension — Reward Roadmap (v7)
 
+> **STATUS 2026-08-30 — historical. This file is no longer the source of truth for strategy.**
+> Its target ("a reward that beats RRCM's published outcome-only ranking reward") was tested
+> through v8 and **not achieved**; the reward axis is closed by measurement, not by opinion
+> (`REWARD_REASONING_ANALYSIS.md` Parts 10–15). Current strategy lives in
+> `RRCM_NIPS_REWARD_REASONING_RETRIEVAL.md` (the paper section) and
+> `RRCM_FROZEN_PROTOCOL.md` (the paper-faithful control). The "A2 pre-collapse decodes
+> running" note below refers to July 2026 jobs that finished long ago.
+
 **Single source of truth** for strategy, status, target, and protocol. The two design docs
 (`retrieval_reward_design.md`, `reasoning_reward_design.md`) cover *implementation only* and defer to
 this file for the frame — nothing strategic is duplicated there, so it can't drift again.

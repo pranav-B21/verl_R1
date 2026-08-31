@@ -1,0 +1,197 @@
+{
+ "raw_records": 516914,
+ "raw_distinct_titles": 339102,
+ "raw_empty_titles": 1,
+ "raw_len_le_3": 1010,
+ "catalog_size": 13111,
+ "match_type_census": {
+  "fuzzy": 696,
+  "exact": 12415
+ },
+ "fuzzy_pct": 5.308519563725116,
+ "bug3": {
+  "n_fuzzy": 696,
+  "branch": {
+   "meta_title in title": 691,
+   "title in meta_title": 5
+  },
+  "top_winners": [
+   [
+    "A",
+    70
+   ],
+   [
+    "Greatest Hits",
+    42
+   ],
+   [
+    "",
+    39
+   ],
+   [
+    "Best of",
+    34
+   ],
+   [
+    "Live",
+    32
+   ],
+   [
+    "E",
+    24
+   ],
+   [
+    "Songs",
+    19
+   ],
+   [
+    "Music",
+    19
+   ],
+   [
+    "Collection",
+    17
+   ],
+   [
+    "L",
+    15
+   ],
+   [
+    "Soul",
+    14
+   ],
+   [
+    "U",
+    12
+   ],
+   [
+    "Ma",
+    8
+   ],
+   [
+    "Hits",
+    7
+   ],
+   [
+    "H",
+    7
+   ]
+  ],
+  "recoverable_via_unescaped_index": 570,
+  "wrong_brand": 567,
+  "wrong_price": 550,
+  "wrong_either": 570,
+  "wrong_either_pct_of_catalog": 4.347494470292121,
+  "examples": [
+   {
+    "corpus_title": "10 Great R&B Christmas Songs",
+    "won_by": "Songs",
+    "branch": "meta_title in title",
+    "assigned_brand": "Deptford Goth",
+    "correct_brand": "10 Great R & B Christmas Songs",
+    "assigned_price": "$10.34",
+    "correct_price": "$13.98"
+   },
+   {
+    "corpus_title": "100 Hits - Peace & Love",
+    "won_by": "Hits",
+    "branch": "meta_title in title",
+    "assigned_brand": "Sweet",
+    "correct_brand": "Various Artists",
+    "assigned_price": "",
+    "correct_price": "$9.07"
+   },
+   {
+    "corpus_title": "100 Miles & Running",
+    "won_by": "Miles",
+    "branch": "meta_title in title",
+    "assigned_brand": "Miles",
+    "correct_brand": "N.W.A.",
+    "assigned_price": "$1.71",
+    "correct_price": "$7.95"
+   },
+   {
+    "corpus_title": "16 & Savaged: Expanded Edition",
+    "won_by": "E",
+    "branch": "meta_title in title",
+    "assigned_brand": "Local Juju",
+    "correct_brand": "MICHAEL SILVERHEAD / DES BARRES",
+    "assigned_price": "$14.99",
+    "correct_price": "$12.68"
+   },
+   {
+    "corpus_title": "19 Original Albums & Bonus",
+    "won_by": "A",
+    "branch": "meta_title in title",
+    "assigned_brand": "Agnetha Faltskog",
+    "correct_brand": "CONNIE FRANCIS",
+    "assigned_price": "$11.99",
+    "correct_price": "$20.99"
+   },
+   {
+    "corpus_title": "20th Century Masters - The Millennium Collection: The Best of Smokey Robinson & The Miracles",
+    "won_by": "Collection",
+    "branch": "meta_title in title",
+    "assigned_brand": "Billy P",
+    "correct_brand": "Smokey Robinson",
+    "assigned_price": "$9.98",
+    "correct_price": "$7.19"
+   }
+  ]
+ },
+ "bug2": {
+  "fuzzy_explained_by_html_escape_pct": 81.89655172413794
+ },
+ "bug4": {
+  "corpus_titles": 13108,
+  "eval_name2id": 13079,
+  "intersection": 12975,
+  "corpus_only": 133,
+  "eval_only": 104,
+  "eval_only_pct": 0.7951678262864134,
+  "corpus_only_examples": [
+   ",",
+   "- Chicago XXXVI",
+   "...ya know?",
+   "/>",
+   "50 Classics for Relaxation,50 Classics For Relaxation (2 CD),Time Life Entertainment,5453020,Classical,V/a Compilations,Ballet,Chamber,Choral,Classical Composers,Classical Music,Compilation,Concerto,Keyboard,Miscellaneous,Opera,Orchestral,Soundtracks,Symphonic,Vocal,Classical - General,Recorded Music - Classical",
+   "<span class=",
+   "A Taste Of Honey,A Taste Of Honey,Capitol Records,Dance & DJ - General",
+   "Aaron Watson,Angels & Outlaws,Big Label Records,Country,Pop,Country & Western",
+   "Aerosmith - Music From Another Dimension! LIMITED EDITION CD Includes Bonus Track",
+   "Al Jarreau,The Very Best Of: An Excellent Adventure,Rhino Records,5818572,Pop,Jazz,Jazz Vocals,Vocals,Jazz - General,Recorded Music - Jazz",
+   "Alanis Morissette,Flavors Of Entanglement,Warner Brothers Records,Pop,Alternative Rock,Pop/Rock Music,Rock",
+   "Andrea Bocelli,My Christmas,Verve,Classical Music,Holiday,Holiday Music,Miscellaneous / Holiday,Vocals,Christmas / Chanukkah",
+   "Anne Bisson,Blue Mind,Fidelio Audio,Jazz,Pop,General,Jazz Music,Jazz Vocals,Vocal Music,Vocals,Jazz - General,Recorded Music - Jazz,Rock & Pop - General",
+   "B.B. King Live [Blu-ray]",
+   "Band,Band,Audio Fidelity,Pop,Rock,Pop/Rock Music,24 Karat Gold Disc,Rock/Pop",
+   "Baroness,Blue Record,Relapse,5818629,Pop,Rock,Heavy Metal,Pop/Rock Music,Recorded Music - Rock & Pop,Rock & Pop - General",
+   "Barry Manilow,The Greatest Songs Of The Eighties,Sony Legacy,5229323,Pop Vocals,Pop,Vocal,Vocals,Recorded Music - Rock & Pop,Rock & Pop - General",
+   "Beegie Adair,Winter Romance,Spring Hill,5815501,Contemporary Christian Music,Holiday,Holiday Music,Jazz Music,Christmas / Chanukkah",
+   "Blackmore&#39;s Night,Secret Voyage,Steamhammer / SPV,Pop,Heavy Metal,Pop/Rock Music,Rock,Rock / General,Recorded Music - Rock & Pop,Rock & Pop - General",
+   "Blind Pilot,3 Rounds and a Sound,Expunged Records,Pop,Alternative Rock,Pop/Rock Music,Rock,Rock/Pop"
+  ],
+  "eval_only_examples": [
+   "50 Classics for Relaxation,50 Classics For Relaxation (2 CD),Time Life Entertainment,5453020,Classical,V/a Compilations,Ballet,Chamber,Choral,Classical Composers,Classical Music,Compilation,Concerto,Keyboard,Miscellaneous,Opera,Orchestral,Soundtracks,Symphonic,Vocal,Classical - General,Recorded Music - Classical\" />",
+   "A Taste Of Honey,A Taste Of Honey,Capitol Records,Dance & DJ - General\" />",
+   "Aaron Watson,Angels & Outlaws,Big Label Records,Country,Pop,Country & Western\" />",
+   "Al Jarreau,The Very Best Of: An Excellent Adventure,Rhino Records,5818572,Pop,Jazz,Jazz Vocals,Vocals,Jazz - General,Recorded Music - Jazz\" />",
+   "Alanis Morissette,Flavors Of Entanglement,Warner Brothers Records,Pop,Alternative Rock,Pop/Rock Music,Rock\" />",
+   "Andrea Bocelli,My Christmas,Verve,Classical Music,Holiday,Holiday Music,Miscellaneous / Holiday,Vocals,Christmas / Chanukkah\" />",
+   "Anne Bisson,Blue Mind,Fidelio Audio,Jazz,Pop,General,Jazz Music,Jazz Vocals,Vocal Music,Vocals,Jazz - General,Recorded Music - Jazz,Rock & Pop - General\" />",
+   "Band,Band,Audio Fidelity,Pop,Rock,Pop/Rock Music,24 Karat Gold Disc,Rock/Pop\" />",
+   "Baroness,Blue Record,Relapse,5818629,Pop,Rock,Heavy Metal,Pop/Rock Music,Recorded Music - Rock & Pop,Rock & Pop - General\" />",
+   "Barry Manilow,The Greatest Songs Of The Eighties,Sony Legacy,5229323,Pop Vocals,Pop,Vocal,Vocals,Recorded Music - Rock & Pop,Rock & Pop - General\" />",
+   "Beegie Adair,Winter Romance,Spring Hill,5815501,Contemporary Christian Music,Holiday,Holiday Music,Jazz Music,Christmas / Chanukkah\" />",
+   "Blackmore&#39;s Night,Secret Voyage,Steamhammer / SPV,Pop,Heavy Metal,Pop/Rock Music,Rock,Rock / General,Recorded Music - Rock & Pop,Rock & Pop - General\" />",
+   "Blind Pilot,3 Rounds and a Sound,Expunged Records,Pop,Alternative Rock,Pop/Rock Music,Rock,Rock/Pop\" />",
+   "Bonnie Tyler,Ravishing: The Best of Bonnie Tyler,101 DISTRIBUTION,Pop,Rock,2 CD,Import-Gbr,Pop/Rock Music,Rock/Pop,Recorded Music - Rock & Pop,Rock & Pop - General\" />",
+   "Brandi Carlile,Give Up The Ghost,Sony Legacy,Pop,Rock,Alternative Rock,Pop/Rock Music,Recorded Music - Rock & Pop,Rock & Pop - General\" />",
+   "Brandy,Human,Epic,Human,Pop,R&B,Soul/R&B,Urban,Recorded Music - Rock & Pop,Rock & Pop - General,Soul & R&B\" />",
+   "Brian Setzer Orchestra,Christmas Rocks: The Best of Collection,Surfdog Records Wea,5259124,Holiday,Holiday Music,Pop/Rock Music,Christmas / Chanukkah\" />",
+   "Byrds,Original Album Classics,Columbia Europe,Box Sets (Audio Only),Pop,Rock,Import-Eu,Import-Gbr,Rock/Pop,Pop/Rock Music,Recorded Music - Rock & Pop,Rock & Pop - General\" />",
+   "Cannonball Adderley,Somethin&#39; Else [Vinyl],Analogue Productions,Jazz,Pop,180gm Vinyl/45rpm,Jazz Music\" />",
+   "Celine Dion,My Love-Essential Collection,Sony BMG,5232282,Pop,Pop Vocals,Pop/Rock Music,Vocal,Recorded Music - Rock & Pop,Rock & Pop - General\" />"
+  ]
+ }
+}

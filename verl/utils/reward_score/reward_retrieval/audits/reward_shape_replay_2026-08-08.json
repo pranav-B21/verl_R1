@@ -1,0 +1,45 @@
+{
+  "label": "baseline@200",
+  "pair_key": "paper",
+  "files": [
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode1_2026-07-21/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode1_2026-07-24/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode1_2026-08-01/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode2_2026-07-21/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode2_2026-07-24/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode2_2026-08-01/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode3_2026-07-21/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode3_2026-07-24/test_predictions.json",
+    "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/decode3_2026-08-01/test_predictions.json"
+  ],
+  "n_groups": 983,
+  "n_rollouts": 8847,
+  "rank_bands": {
+    "1": 7,
+    "2-5": 19,
+    "6-10": 7,
+    "11-50": 49,
+    "51-100": 48,
+    "101-500": 316,
+    ">500": 8401
+  },
+  "dead_groups": {
+    "cur": 714,
+    "paper": 299,
+    "paper_acc": 899
+  },
+  "mean_group_std": {
+    "cur": 0.020155618020548317,
+    "paper": 0.2525137884625388,
+    "paper_acc": 0.005694443035214703
+  },
+  "pairs": {
+    "total": 35388,
+    "both_tied": 25398,
+    "concordant": 1471,
+    "ours_ties_paper_separates": 6784,
+    "paper_ties_ours_separates": 1528,
+    "flipped": 207
+  },
+  "dead_ours_live_paper": 460
+}

@@ -1,0 +1,33 @@
+{
+  "label": "greedy baseline-n8@200",
+  "a": "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/greedy1_2026-08-08/test_predictions.json",
+  "b": "outputs/eval/nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8/global_step_200/greedy2_2026-08-08/test_predictions.json",
+  "n_prompts": 1000,
+  "n_scored": 983,
+  "identical_text": 0.351,
+  "identical_answer": 0.62,
+  "identical_gt_rank": 0.6174974567650051,
+  "hr5_disagree_prompts": 3,
+  "metrics": {
+    "hr@1": {
+      "a": 0.001017293997965412,
+      "b": 0.001017293997965412,
+      "abs_diff": 0.0
+    },
+    "hr@5": {
+      "a": 0.004069175991861648,
+      "b": 0.003051881993896236,
+      "abs_diff": 0.001017293997965412
+    },
+    "hr@10": {
+      "a": 0.00508646998982706,
+      "b": 0.004069175991861648,
+      "abs_diff": 0.0010172939979654124
+    },
+    "ndcg@5": {
+      "a": 0.002605906725986623,
+      "b": 0.0020972597270039173,
+      "abs_diff": 0.0005086469989827058
+    }
+  }
+}
