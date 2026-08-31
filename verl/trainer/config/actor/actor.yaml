@@ -74,6 +74,18 @@ loss_agg_mode: token-mean
 # Entropy regularization coefficient in PPO loss
 entropy_coeff: 0
 
+# Whether to regularize post-retrieval retrieve-versus-answer decisions
+decision_entropy_enabled: false
+
+# Maximum coefficient for post-retrieval decision entropy
+decision_entropy_coeff: 0.0
+
+# Last training step that uses the full decision-entropy coefficient
+decision_entropy_hold_steps: 300
+
+# Step at which the linearly decayed decision-entropy coefficient reaches zero
+decision_entropy_decay_end_steps: 500
+
 # Whether to use KL loss instead of KL reward penalty. True for GRPO
 use_kl_loss: false
 
@@ -92,6 +104,9 @@ ppo_epochs: 1
 
 # Shuffle training data across PPO epochs
 shuffle: false
+
+# Seed used when splitting and shuffling actor mini-batches
+data_loader_seed: 1
 
 # checkpoint configs
 checkpoint:

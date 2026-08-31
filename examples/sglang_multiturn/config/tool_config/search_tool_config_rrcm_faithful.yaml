@@ -1,0 +1,27 @@
+tools:
+  - class_name: verl.tools.search_tool.SearchTool
+    config:
+      retrieval_service_url: http://localhost:8000/retrieve
+      num_workers: 120
+      rate_limit: 120
+      timeout: 30
+      type: native
+      topk: 1
+      max_queries_per_call: 1
+    tool_schema:
+      type: function
+      function:
+        name: search
+        description: Searches the unified collaborative-history and item-metadata memory.
+        parameters:
+          type: object
+          properties:
+            query_list:
+              type: array
+              minItems: 1
+              maxItems: 1
+              items:
+                type: string
+              description: Exactly one fully formed natural-language memory query.
+          required:
+            - query_list

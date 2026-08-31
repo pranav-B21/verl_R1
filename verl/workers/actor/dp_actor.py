@@ -28,6 +28,7 @@ from torch.distributed.tensor import DTensor
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
 from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
+from verl.trainer.ppo.decision_entropy import binary_action_entropy, decision_entropy_coefficient
 from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -84,14 +85,23 @@ class DataParallelPPOActor(BasePPOActor):
         self.device_name = get_device_name()
 
     def _forward_micro_batch(
-        self, micro_batch, temperature, calculate_entropy=False
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self, micro_batch, temperature, calculate_entropy=False, calculate_decision_entropy=False
+    ) -> tuple[torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
         """
         Returns:
-            entropy: # (bs, response_len)
-            log_probs: # (bs, response_len)
+            entropy: full-vocabulary entropy, or None; shape (bs, response_len)
+            log_probs: sampled-token log probabilities; shape (bs, response_len)
+            decision_entropy: retrieve/answer binary entropy, or None; shape (bs, response_len)
         """
         response_length = micro_batch["responses"].size(-1)
+        action_token_ids = None
+        if calculate_decision_entropy:
+            if self.use_fused_kernels:
+                raise ValueError("decision entropy requires unfused logits")
+            action_ids = micro_batch["decision_entropy_action_token_ids"]
+            if action_ids.ndim != 2 or action_ids.shape[1] != 2 or not torch.all(action_ids == action_ids[0]):
+                raise ValueError("decision action token ids must be one identical pair per sample")
+            action_token_ids = action_ids[0].detach().cpu().tolist()
         multi_modal_inputs = {}
         if "multi_modal_inputs" in micro_batch.keys():
             from verl.utils.model import extract_multi_modal_inputs
@@ -104,6 +114,7 @@ class DataParallelPPOActor(BasePPOActor):
             attention_mask = micro_batch["attention_mask"]
             position_ids = micro_batch["position_ids"]
             entropy = None
+            decision_entropy = None
             if position_ids.dim() == 3:  # qwen2vl mrope
                 position_ids = position_ids.transpose(0, 1)  # (bsz, 4, seqlen) -> (4, bsz, seqlen)
 
@@ -186,7 +197,7 @@ class DataParallelPPOActor(BasePPOActor):
 
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                     inplace_backward = True
-                    if calculate_entropy:
+                    if calculate_entropy or calculate_decision_entropy:
                         inplace_backward = False
                     log_probs = logprobs_from_logits(
                         logits=logits_rmpad,
@@ -202,6 +213,8 @@ class DataParallelPPOActor(BasePPOActor):
                             entropy_rmpad = torch.utils.checkpoint.checkpoint(
                                 self.compute_entropy_from_logits, logits_rmpad
                             )
+                    if calculate_decision_entropy:
+                        decision_entropy_rmpad = binary_action_entropy(logits_rmpad, action_token_ids)
 
                 # gather log_prob if sp > 1
                 if self.use_ulysses_sp:
@@ -219,10 +232,24 @@ class DataParallelPPOActor(BasePPOActor):
                             unpad_dim=0,
                             padding_size=pad_size,
                         )
+                    if calculate_decision_entropy:
+                        decision_entropy_rmpad = gather_outputs_and_unpad(
+                            decision_entropy_rmpad,
+                            gather_dim=0,
+                            unpad_dim=0,
+                            padding_size=pad_size,
+                        )
                 # pad back to (bsz, seqlen)
                 if calculate_entropy:
                     full_entropy = pad_input(
                         hidden_states=entropy_rmpad.unsqueeze(-1),
+                        indices=indices,
+                        batch=batch_size,
+                        seqlen=seqlen,
+                    )
+                if calculate_decision_entropy:
+                    full_decision_entropy = pad_input(
+                        hidden_states=decision_entropy_rmpad.unsqueeze(-1),
                         indices=indices,
                         batch=batch_size,
                         seqlen=seqlen,
@@ -237,6 +264,8 @@ class DataParallelPPOActor(BasePPOActor):
                 # only return response part:
                 if calculate_entropy:
                     entropy = full_entropy.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
+                if calculate_decision_entropy:
+                    decision_entropy = full_decision_entropy.squeeze(-1)[:, -response_length - 1 : -1]
                 log_probs = full_log_probs.squeeze(-1)[:, -response_length - 1 : -1]  # (bsz, response_length)
 
             else:  # not using rmpad and no ulysses sp
@@ -269,8 +298,10 @@ class DataParallelPPOActor(BasePPOActor):
                             entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+                    if calculate_decision_entropy:
+                        decision_entropy = binary_action_entropy(logits, action_token_ids)
 
-            return entropy, log_probs
+            return entropy, log_probs, decision_entropy
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
@@ -336,7 +367,7 @@ class DataParallelPPOActor(BasePPOActor):
             micro_batch = micro_batch.to(get_device_id())
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
             with torch.no_grad():
-                entropy, log_probs = self._forward_micro_batch(
+                entropy, log_probs, _ = self._forward_micro_batch(
                     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                 )
             log_probs_lst.append(log_probs)
@@ -371,6 +402,12 @@ class DataParallelPPOActor(BasePPOActor):
             "old_log_probs",
             "advantages",
         ]
+        if self.config.decision_entropy_enabled:
+            if "decision_entropy_mask" not in data.batch.keys():
+                raise ValueError("decision entropy is enabled but decision_entropy_mask is missing from the batch")
+            if "decision_entropy_action_token_ids" not in data.batch.keys():
+                raise ValueError("decision entropy action token ids are missing from the batch")
+            select_keys.extend(["decision_entropy_mask", "decision_entropy_action_token_ids"])
         if self.config.use_kl_loss:
             select_keys.append("ref_log_prob")
         # Include pre-computed IS weights if present in batch
@@ -412,6 +449,14 @@ class DataParallelPPOActor(BasePPOActor):
                     advantages = model_inputs["advantages"]
 
                     entropy_coeff = self.config.entropy_coeff
+                    decision_entropy_coeff = 0.0
+                    if self.config.decision_entropy_enabled:
+                        decision_entropy_coeff = decision_entropy_coefficient(
+                            step=int(data.meta_info.get("global_steps", 0)),
+                            coefficient=self.config.decision_entropy_coeff,
+                            hold_steps=self.config.decision_entropy_hold_steps,
+                            decay_end_steps=self.config.decision_entropy_decay_end_steps,
+                        )
                     loss_agg_mode = self.config.loss_agg_mode
 
                     if self.config.use_dynamic_bsz:
@@ -420,11 +465,11 @@ class DataParallelPPOActor(BasePPOActor):
                         loss_scale_factor = 1 / self.gradient_accumulation
 
                     # all return: (bsz, response_length)
-                    calculate_entropy = False
-                    if entropy_coeff != 0:
-                        calculate_entropy = True
-                    entropy, log_prob = self._forward_micro_batch(
-                        model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                    entropy, log_prob, binary_entropy = self._forward_micro_batch(
+                        model_inputs,
+                        temperature=temperature,
+                        calculate_entropy=entropy_coeff != 0,
+                        calculate_decision_entropy=decision_entropy_coeff != 0,
                     )
 
                     if on_policy:
@@ -466,6 +511,20 @@ class DataParallelPPOActor(BasePPOActor):
                         policy_loss = pg_loss - entropy_loss * entropy_coeff
                     else:
                         policy_loss = pg_loss
+
+                    if decision_entropy_coeff != 0:
+                        decision_mask = model_inputs["decision_entropy_mask"].to(dtype=binary_entropy.dtype)
+                        masked_decision_entropy = verl_F.masked_mean(binary_entropy, decision_mask)
+                        policy_loss = policy_loss - masked_decision_entropy * decision_entropy_coeff
+                        micro_batch_metrics["actor/decision_entropy"] = (
+                            masked_decision_entropy.detach().item() * loss_scale_factor
+                        )
+                        micro_batch_metrics["actor/decision_entropy_coeff"] = (
+                            decision_entropy_coeff * loss_scale_factor
+                        )
+                        micro_batch_metrics["actor/decision_entropy_loss"] = (
+                            masked_decision_entropy.detach().item() * decision_entropy_coeff * loss_scale_factor
+                        )
 
                     if self.config.use_kl_loss:
                         ref_log_prob = model_inputs["ref_log_prob"]

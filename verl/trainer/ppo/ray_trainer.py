@@ -43,6 +43,7 @@ from verl.single_controller.ray.base import create_colocated_worker_cls
 from verl.trainer.config import AlgoConfig
 from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
+from verl.trainer.ppo.decision_entropy import build_post_retrieval_decision_stats
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
@@ -1077,6 +1078,41 @@ class RayPPOTrainer:
 
                     if "response_mask" not in batch.batch.keys():
                         batch.batch["response_mask"] = compute_response_mask(batch)
+                    if self.config.actor_rollout_ref.actor.decision_entropy_enabled:
+                        tool_call_ids = self.tokenizer.encode("<tool_call>", add_special_tokens=False)
+                        answer_ids = self.tokenizer.encode("<answer>", add_special_tokens=False)
+                        decision_stats = build_post_retrieval_decision_stats(
+                            responses=batch.batch["responses"],
+                            response_mask=batch.batch["response_mask"],
+                            tool_call_token_ids=tool_call_ids,
+                            answer_token_ids=answer_ids,
+                            tool_call_recognition_patterns=[
+                                tool_call_ids,
+                                self.tokenizer.encode("<tool_call", add_special_tokens=False),
+                            ],
+                            answer_recognition_patterns=[
+                                answer_ids,
+                                self.tokenizer.encode("<answer", add_special_tokens=False),
+                            ],
+                        )
+                        batch.batch["decision_entropy_mask"] = decision_stats.mask
+                        batch.batch["decision_entropy_action_token_ids"] = torch.tensor(
+                            decision_stats.action_token_ids,
+                            device=batch.batch["responses"].device,
+                            dtype=torch.long,
+                        ).repeat(batch.batch["responses"].shape[0], 1)
+                        metrics["decision_entropy/eligible_sample_rate"] = (
+                            decision_stats.mask.any(dim=-1).float().mean().item()
+                        )
+                        metrics["decision_entropy/masked_tokens_per_sample"] = (
+                            decision_stats.mask.sum(dim=-1).float().mean().item()
+                        )
+                        metrics["decision_entropy/second_query_rate"] = (
+                            decision_stats.post_retrieval_tool_calls.gt(0).float().mean().item()
+                        )
+                        metrics["decision_entropy/post_retrieval_answer_rate"] = (
+                            decision_stats.post_retrieval_answers.gt(0).float().mean().item()
+                        )
                     # Balance the number of valid tokens across DP ranks.
                     # NOTE: This usually changes the order of data in the `batch`,
                     # which won't affect the advantage calculation (since it's based on uid),
@@ -1185,6 +1221,7 @@ class RayPPOTrainer:
                         # update actor
                         with marked_timer("update_actor", timing_raw, color="red"):
                             batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
+                            batch.meta_info["global_steps"] = self.global_steps
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)

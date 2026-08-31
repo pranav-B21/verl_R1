@@ -106,6 +106,10 @@ class ActorConfig(BaseConfig):
     clip_ratio_c: float = 3.0
     loss_agg_mode: str = "token-mean"
     entropy_coeff: float = 0
+    decision_entropy_enabled: bool = False
+    decision_entropy_coeff: float = 0.0
+    decision_entropy_hold_steps: int = 300
+    decision_entropy_decay_end_steps: int = 500
     use_kl_loss: bool = False
     use_torch_compile: bool = True
     kl_loss_coef: float = 0.001
@@ -117,7 +121,7 @@ class ActorConfig(BaseConfig):
     use_fused_kernels: bool = False
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
     engine: BaseConfig = field(default_factory=BaseConfig)
-    data_loader_seed = 1
+    data_loader_seed: int = 1
     rollout_n: int = 1  # must be override by sampling config
     model_config: HFModelConfig = field(default_factory=BaseConfig)
 
@@ -125,6 +129,17 @@ class ActorConfig(BaseConfig):
         """Validate actor configuration parameters."""
         assert self.strategy != MISSING
         assert self.rollout_n != MISSING
+        if self.decision_entropy_enabled:
+            if self.decision_entropy_coeff <= 0:
+                raise ValueError("decision_entropy_coeff must be positive when decision entropy is enabled")
+            if self.use_fused_kernels:
+                raise ValueError("decision entropy requires use_fused_kernels=false")
+            if self.decision_entropy_hold_steps < 0:
+                raise ValueError("decision_entropy_hold_steps must be non-negative")
+            if self.decision_entropy_decay_end_steps <= self.decision_entropy_hold_steps:
+                raise ValueError(
+                    "decision_entropy_decay_end_steps must be greater than decision_entropy_hold_steps"
+                )
         if not self.use_dynamic_bsz:
             if self.ppo_micro_batch_size is not None and self.ppo_micro_batch_size_per_gpu is not None:
                 raise ValueError(
