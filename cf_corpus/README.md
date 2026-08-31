@@ -1,5 +1,16 @@
 # CF-continuation corpus build
 
+> **STATUS 2026-08-30 — DEAD, not paused. Do not build on this.**
+> Superseded twice. (1) The PI rejected the diagnosis on 2026-07-11: the corpus is not to
+> change, and 4.6% (since corrected to ~3.1%) coverage is a property of the benchmark, not a
+> bug. (2) The paper is a journal extension on a frozen corpus/benchmark, so corpus edits
+> would break the comparability the Table-1 comparison depends on.
+> The claim below that the system is "retrieval-bound, not reward-bound" was also
+> **superseded on its own terms**: `coverage × P(pick GT | covered)` decomposes the ceiling,
+> and the selection factor is at chance (`REWARD_REASONING_ANALYSIS.md` §11.2), so widening
+> retrieval is measurably *harmful* at a chance-level selector (§10.8). Kept for provenance
+> and for the diagnostics it produced.
+
 Restructure train-user behaviour into **user-independent CF-continuation docs**
 so a test user can reach the continuation of their history. This is the single
 mandatory fix identified by three diagnostics: the system is **retrieval-bound,

@@ -163,6 +163,9 @@ class SearchTool(BaseTool):
         self.num_workers = config.get("num_workers", 120)
         self.rate_limit = config.get("rate_limit", 120)
         self.timeout = config.get("timeout", 30)
+        self.max_queries_per_call = config.get("max_queries_per_call")
+        if self.max_queries_per_call is not None and self.max_queries_per_call < 1:
+            raise ValueError("max_queries_per_call must be at least 1 when configured")
 
         self.enable_global_rate_limit = config.get("enable_global_rate_limit", True)
         self.execution_pool = init_search_execution_pool(
@@ -247,6 +250,10 @@ class SearchTool(BaseTool):
             logger.error(f"[SearchTool] {error_msg} Received parameters: {parameters}")
             return ToolResponse(text=json.dumps({"result": error_msg})), 0.0, {}
 
+        original_query_count = len(query_list_from_params)
+        if self.max_queries_per_call is not None:
+            query_list_from_params = query_list_from_params[: self.max_queries_per_call]
+
         # Execute search using Ray execution pool
         try:
             result_text, metadata = await self.execution_pool.execute.remote(
@@ -262,6 +269,8 @@ class SearchTool(BaseTool):
                 "status": metadata.get("status", "unknown"),
                 "total_results": metadata.get("total_results", 0),
                 "api_request_error": metadata.get("api_request_error"),
+                "submitted_query_count": original_query_count,
+                "queries_truncated": max(0, original_query_count - len(query_list_from_params)),
             }
 
             return ToolResponse(text=result_text), 0.0, metrics

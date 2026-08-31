@@ -113,7 +113,7 @@ fi
 
 echo "Starting greedy diagnostic on ${test_host}..."
 srun --nodelist="${test_host}" --nodes=1 --ntasks=1 --exclusive bash -lc \
-  "source ~/.bashrc && DIAG_RUNS='${DIAG_RUNS:-}' DIAG_SPLITS='${DIAG_SPLITS:-}' bash ${PROJECT_DIR}/verl/utils/reward_score/reward_reasoning/diagnostics_scripts/test_in_container_traindiag.sh" &
+  "source ~/.bashrc && DIAG_RUNS='${DIAG_RUNS:-}' DIAG_SPLITS='${DIAG_SPLITS:-}' DIAG_STEP='${DIAG_STEP:-}' bash ${PROJECT_DIR}/verl/utils/reward_score/reward_reasoning/diagnostics_scripts/test_in_container_traindiag.sh" &
 test_pid=$!
 
 # Monitor both jobs; restart retriever on crash; fail job if it can't be restarted.

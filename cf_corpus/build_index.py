@@ -8,7 +8,9 @@ coverage sweep and the served retriever will disagree:
   * prefix : documents get "passage: " (queries get "query: " at serve time)
   * pooling: mean over tokens, masked by attention_mask
   * norm   : L2-normalize (so inner-product == cosine)
-  * dtype  : fp16 on GPU (matches use_fp16=True); index stores fp32 vectors
+  * dtype  : fp32 (--no-fp16). The shipped index was built in fp32; fp16 drifts to
+             cosine ~0.9997 against emb_e5.memmap.
+  * maxlen : 256 (--max-length 256), NOT the 1024 query budget
   * index  : IndexFlatIP, 768-dim  (matches the existing e5_Flat.index:
              memmap size 85302*768*4 == 262,047,744 bytes)
 
@@ -23,7 +25,8 @@ Usage:
   conda activate retriever
   python cf_corpus/build_index.py \
       --corpus data/amazon_data/cf/corpora_cf_meta.jsonl \
-      --index  data/amazon_data/cf/e5_Flat_cf_meta.index
+      --index  data/amazon_data/cf/e5_Flat_cf_meta.index \
+      --max-length 256 --no-fp16
 """
 
 import argparse
@@ -77,10 +80,16 @@ def main():
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--index", required=True)
     ap.add_argument("--model", default="intfloat/e5-base-v2")
-    ap.add_argument("--max-length", type=int, default=1024,
-                    help="match retrieval_query_max_length in retrieval_server.py")
+    ap.add_argument("--max-length", type=int, default=256,
+                    help="256 reproduces the shipped e5_Flat.index bit-for-bit; verified by "
+                         "re-encoding doc 72230 (1856 tokens) to cosine 1.000000 against "
+                         "emb_e5.memmap. NOT 1024 -- that is retrieval_server.py:431's QUERY "
+                         "budget and it exceeds e5-base-v2's 512 position embeddings, so it "
+                         "crashes on any doc past 512 tokens.")
     ap.add_argument("--batch-size", type=int, default=256)
-    ap.add_argument("--no-fp16", action="store_true")
+    ap.add_argument("--no-fp16", action="store_true",
+                    help="pass this to reproduce the shipped index: it was built in fp32. "
+                         "fp16 encoding drifts to cosine ~0.9997.")
     ap.add_argument("--save-memmap", action="store_true",
                     help="also dump raw fp32 embeddings alongside the index")
     args = ap.parse_args()

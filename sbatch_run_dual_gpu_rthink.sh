@@ -59,7 +59,7 @@ cleanup() {
 trap cleanup EXIT
 
 PROJECT_DIR="/work/11138/pranavbelligundu/vista/verl_R1"
-SHARED_CONFIG="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml"
+SHARED_CONFIG="${TOOL_CONFIG_TEMPLATE:-$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml}"
 
 # PER-JOB TOOL CONFIG — do NOT sed the shared file.
 # retrieval_service_url has to be rewritten to this job's retriever host, but the
@@ -91,7 +91,7 @@ echo "[tool-config] job-scoped copy: $CONFIG_FILE -> ${retrieval_url}"
 start_retriever() {
   echo "Starting retriever on ${retriever_host}..."
   srun --nodelist="${retriever_host}" --nodes=1 --ntasks=1 --exclusive bash -lc \
-    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash retrieval_launch.sh" &
+    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash ${RETRIEVAL_SCRIPT:-retrieval_launch.sh}" &
   retrieval_pid=$!
 }
 

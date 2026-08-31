@@ -39,6 +39,12 @@
 #                       a measurement; use 3 to get a mean/spread. Each repeat lands
 #                       in its own <step>/decode<i>_<date>/ dir (no clobbering) and
 #                       gets its own row in the summary table.
+#   DECODE_TEMPERATURE— 1.0 (default, historical) or 0 for a greedy/argmax decode.
+#   DECODE_TOP_P      — default 0.95; forced to 1.0 when temperature=0.
+#   DECODE_TOP_K      — default -1;   forced to 1   when temperature=0.
+#   DECODE_TAG        — decode subdir prefix (default "decode", or "greedy" when
+#                       temperature=0), so the two regimes never pool.
+#   MAX_ASSISTANT_TURNS — rollout turn cap (historical default 4).
 #   CUDA_VISIBLE_DEVICES
 
 cd /work/11138/pranavbelligundu/vista/verl_R1
@@ -83,6 +89,70 @@ GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-32}
 # output subdir (see run_one's RUN_TAG) and the final summary prints one row per
 # repeat, giving the mean/spread directly.
 EVAL_REPEATS=${EVAL_REPEATS:-1}
+MAX_ASSISTANT_TURNS=${MAX_ASSISTANT_TURNS:-4}
+
+# ---------------------------------------------------------------------------
+# Decode sampling parameters.
+#
+# DEFAULTS ARE UNCHANGED (1.0 / 0.95 / -1) so every table already in
+# TEST_OUTPUT.md keeps reproducing byte-for-byte. Set DECODE_TEMPERATURE=0 for a
+# greedy (argmax) decode, which is what inference normally looks like once a
+# policy is trained and is the only way to get the sampling-noise term out of a
+# cross-arm comparison: at temperature 1.0 three decodes of ONE frozen v8
+# checkpoint gave HR@5 0.005/0.004/0.002, wider than any arm gap measured so far.
+#
+# Greedy is also what the TRAINER already uses for its own validation pass
+# (rollout.val_kwargs: temperature=0, do_sample=False, n=1 -- see
+# verl/trainer/config/rollout/rollout.yaml), so a greedy decode here is the
+# apples-to-apples partner of the wandb val curves. The temperature-1.0 harness
+# was the outlier, not the val curves.
+#
+# temperature=0 forces top_p=1 / top_k=1: sglang's SamplingParams normalizes
+# temperature 0 to greedy internally, but leaving top_p=0.95 in the command line
+# makes the log read as if nucleus sampling were still active. Setting them
+# explicitly keeps the recorded config honest.
+#
+# GREEDY IS NOT AUTOMATICALLY BIT-DETERMINISTIC on sglang: batching and the radix
+# cache can change the reduction order, and this is a MULTI-TURN rollout, so one
+# flipped token in a <search> query changes the retrieved docs and can change the
+# answer. Run EVAL_REPEATS=2 once per arm to measure the residual spread instead
+# of assuming it is zero; if it is zero, drop to EVAL_REPEATS=1 for the sweep.
+DECODE_TEMPERATURE=${DECODE_TEMPERATURE:-1.0}
+DECODE_TOP_P=${DECODE_TOP_P:-0.95}
+DECODE_TOP_K=${DECODE_TOP_K:--1}
+if [ "$(echo "$DECODE_TEMPERATURE" | awk '{print ($1 == 0) ? "greedy" : "sample"}')" = "greedy" ]; then
+    DECODE_TEMPERATURE=0.0
+    DECODE_TOP_P=1.0
+    DECODE_TOP_K=1
+    DECODE_MODE=greedy
+else
+    DECODE_MODE=sample
+fi
+# Decode subdir prefix. Greedy decodes must NOT land in decode<i>_<date> next to
+# the temperature-1.0 decodes: decode_behavior.py / decode_selection.py /
+# paired_arm_test.py glob those dirs and would silently pool two different
+# sampling regimes into one "mean over decodes".
+DECODE_TAG=${DECODE_TAG:-$([ "$DECODE_MODE" = greedy ] && echo greedy || echo decode)}
+
+# Which prompts to decode. Defaults to the held-out test set -- every table in
+# TEST_OUTPUT.md is that set and the default must never move. Overridable so the
+# SAME instrument can decode the TRAIN sample, which is the only way to observe
+# the distribution GRPO actually computes gradients on: the 1-in-64 training
+# prints show 54.8% of TRAIN rollouts rank the GT #1 and 59.9% retrieve it,
+# against 0.1% / 3.1% held-out, so every "no within-group gradient" statement
+# derived from test decodes needs re-deriving here before it can be believed.
+# ALWAYS pass a distinct DECODE_TAG with this, or train decodes land in
+# decode<i>_<date> and get pooled with test decodes by the audit globs.
+DECODE_PARQUET=${DECODE_PARQUET:-"$TEST_DATA_DIR/test.parquet"}
+echo "[decode] mode=$DECODE_MODE temperature=$DECODE_TEMPERATURE top_p=$DECODE_TOP_P top_k=$DECODE_TOP_K tag=${DECODE_TAG}<i>_<date>"
+echo "[decode] prompts=$DECODE_PARQUET"
+if [ "$DECODE_PARQUET" != "$TEST_DATA_DIR/test.parquet" ] && \
+   [ "$DECODE_TAG" = "decode" -o "$DECODE_TAG" = "greedy" ]; then
+    echo "FATAL: non-default DECODE_PARQUET with the default DECODE_TAG='$DECODE_TAG'." >&2
+    echo "       That would pool these decodes with the held-out tables. Set DECODE_TAG." >&2
+    exit 1
+fi
+
 EVAL_CATEGORY=${EVAL_CATEGORY:-'CDs_and_Vinyl'}
 # Optional explicit dataset resource dir (contains id2name.json, name2id.json, embeddings.pt, ...).
 # If unset, it is derived from EVAL_CATEGORY under $PROJECT_DIR/data/amazon_data/<category>.
@@ -172,13 +242,18 @@ run_one() {
         --env SSL_CERT_FILE=$SSL_CERT_FILE \
         --env FORCE_MERGE=$FORCE_MERGE \
         --env GEN_BATCH_SIZE=$GEN_BATCH_SIZE \
+        --env DECODE_TEMPERATURE=$DECODE_TEMPERATURE \
+        --env DECODE_TOP_P=$DECODE_TOP_P \
+        --env DECODE_TOP_K=$DECODE_TOP_K \
+        --env DECODE_MODE=$DECODE_MODE \
+        --env MAX_ASSISTANT_TURNS=$MAX_ASSISTANT_TURNS \
         --env CHECKPOINT_PATH=$CHECKPOINT_PATH \
         --env MERGED_MODEL_DIR=$MERGED_MODEL_DIR \
         --env GEN_OUTPUT_PARQUET=$GEN_OUTPUT_PARQUET \
         --env PRED_JSON=$PRED_JSON \
         --env METRICS_JSON=$METRICS_JSON \
         --env TOOL_CONFIG=$TOOL_CONFIG \
-        --env TEST_PARQUET="$TEST_DATA_DIR/test.parquet" \
+        --env TEST_PARQUET="$DECODE_PARQUET" \
         --env EVAL_CATEGORY=$EVAL_CATEGORY \
         --env EVAL_DATASET_DIR=$EVAL_DATASET_DIR \
         --env EXPERIMENT_NAME=$EXPERIMENT_NAME \
@@ -201,7 +276,7 @@ run_one() {
                 echo "Merged model already exists, skipping (set FORCE_MERGE=1 to rebuild)."
             fi
 
-            echo "[2/4] Generating predictions on the test set..."
+            echo "[2/4] Generating predictions on the test set ($DECODE_MODE: T=$DECODE_TEMPERATURE top_p=$DECODE_TOP_P top_k=$DECODE_TOP_K)..."
             python3 -m verl.trainer.main_generation \
                 trainer.nnodes=1 \
                 trainer.n_gpus_per_node=1 \
@@ -213,9 +288,9 @@ run_one() {
                 data.output_path="$GEN_OUTPUT_PARQUET" \
                 model.path="$MERGED_MODEL_DIR" \
                 rollout.name=sglang \
-                rollout.temperature=1.0 \
-                rollout.top_k=-1 \
-                rollout.top_p=0.95 \
+                rollout.temperature="$DECODE_TEMPERATURE" \
+                rollout.top_k="$DECODE_TOP_K" \
+                rollout.top_p="$DECODE_TOP_P" \
                 rollout.prompt_length=1024 \
                 rollout.response_length=3072 \
                 rollout.tensor_model_parallel_size=1 \
@@ -223,7 +298,7 @@ run_one() {
                 rollout.gpu_memory_utilization=0.9 \
                 +rollout.multi_turn._target_=verl.workers.config.MultiTurnConfig \
                 +rollout.multi_turn.enable=True \
-                +rollout.multi_turn.max_assistant_turns=4 \
+                +rollout.multi_turn.max_assistant_turns="$MAX_ASSISTANT_TURNS" \
                 +rollout.multi_turn.format=qwen \
                 +rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
                 +rollout.multi_turn.use_inference_chat_template=True
@@ -338,13 +413,17 @@ for entry in $RTHINK_RUNS; do
     exp="${entry%%:*}"
     step="${entry#*:}"
     [ "$step" = "$entry" ] && step="$CHECKPOINT_STEP"   # no ":step" given
-    if [ "$EVAL_REPEATS" -le 1 ]; then
+    # A greedy decode is ALWAYS tagged, even at EVAL_REPEATS=1. The untagged path
+    # writes test_metrics_top{1,5}.json at the step-dir root, which is where the
+    # historical temperature-1.0 single decodes live -- an untagged greedy run
+    # would overwrite them and leave no record of which regime produced the file.
+    if [ "$EVAL_REPEATS" -le 1 ] && [ "$DECODE_MODE" = "sample" ]; then
         run_one "$exp" "$step" || echo "[warn] run failed/skipped: $entry" >&2
     else
         for i in $(seq 1 "$EVAL_REPEATS"); do
             echo ""
-            echo ">>> decode repeat $i/$EVAL_REPEATS for $entry"
-            run_one "$exp" "$step" "decode${i}_$(date +%F)" \
+            echo ">>> $DECODE_MODE decode $i/$EVAL_REPEATS for $entry"
+            run_one "$exp" "$step" "${DECODE_TAG}${i}_$(date +%F)" \
                 || echo "[warn] run failed/skipped: $entry (repeat $i)" >&2
         done
     fi
@@ -373,9 +452,4 @@ for s in "${SUMMARY_ENTRIES[@]}"; do
         "${hr1:-n/a}" "${hr5:-n/a}" "${ndcg5:-n/a}" "${orr1:-n/a}"
 done
 echo ""
-echo "Context (from REWARD_REASONING_ANALYSIS.md TEST_OUTPUT, prior eval):"
-echo "  baseline  global_step_500   HR@1 0.004  HR@5 0.007  NDCG@5 0.0054  ORRatio@1 0.035"
-echo "  rthink-v3 global_step_300   HR@1 0.002  HR@5 0.004  NDCG@5 0.0033  ORRatio@1 0.093"
-echo ""
-echo "Pass bar (Part 1): a v4 run must beat baseline HR@5 (0.007) to earn its place;"
-echo "watch whether dense-only lifts HR or only ORRatio/diversity like v3 did."
+echo "No control curve is baked into this evaluator; compare only with a matched audited arm."

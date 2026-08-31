@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# pipefail: the final training command is piped into `tee`, so WITHOUT this the
+# script's exit status is tee's (always 0) and a hard trainer crash is reported
+# to SLURM as COMPLETED 0:0. That is exactly what masked the 2026-08-02 Lustre
+# eviction (job 883844): python died with BrokenPipeError, sacct said COMPLETED.
+# Deliberately NOT `set -e` — the script relies on tolerated non-zero commands.
+set -o pipefail
+
 # Retrieval-quality reward (current iteration: v7) — r_retqual SHAPING ON v6's OUTCOME REWARD.
 #   r_outcome = 1/log2(rankId+1)                     if rankId <= K   # mirrors eval.py NDCG@K
 #   r_outcome = TAIL_W*(1-log(rankId)/log(N))**TAIL_P  otherwise      # weak, steep "get warmer"
@@ -77,6 +84,24 @@ export BASE_MODEL='Qwen/Qwen3-1.7B'
 export EXPERIMENT_NAME=${EXPERIMENT_NAME:-nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v7-n8}
 
 export WAND_PROJECT='Search-R1-CF'
+
+# One wandb run per EXPERIMENT_NAME, not one per SLURM segment.
+# verl's Tracking (verl/utils/tracking.py:69) calls wandb.init() with no id/resume,
+# so every wall-time resume used to mint a fresh run — baseline-n8 ended up as four
+# disjoint curves (dc1swnfy 0-116, t2v3peow -220, wjy9jhyn -328, 9nl4ygv6 -557).
+# wandb.init() reads these env vars, so a fixed id + resume=allow makes the resumed
+# job append to the same run with no verl code change; verl logs step=global_step
+# (tracking.py:150), so the appended points land at the right x.
+# Caveat: a resume restarts from the last 50-step checkpoint, and wandb drops logs at
+# a step below the run's current max — those re-run steps are skipped, not overwritten.
+# To fold a segment into a pre-existing run, pass its id: WANDB_RUN_ID=9nl4ygv6 sbatch ...
+# The id goes in a URL and an on-disk path, so keep it to [A-Za-z0-9_-] (drops the
+# dot in "qwen3-1.7b"); the human-readable name is still trainer.experiment_name.
+export WANDB_RUN_ID=${WANDB_RUN_ID:-${EXPERIMENT_NAME//[^A-Za-z0-9_-]/-}}
+export WANDB_RESUME=${WANDB_RESUME:-allow}
+# Belt and braces: if a new id ever does get minted, the segments still group together.
+export WANDB_RUN_GROUP=${WANDB_RUN_GROUP:-$EXPERIMENT_NAME}
+
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export GLIBC_TUNABLES=glibc.rtld.optional_static_tls=2048
 export TOKENIZERS_PARALLELISM=false
@@ -160,10 +185,20 @@ export RTHINK_W_COVGAIN=${RTHINK_W_COVGAIN:-0.0}          # weight of covgain_ag
 # RTHINK_DENSE_ONLY renamed. orchestrator.py:213 reads `if not _RETRIEVAL_ONLY`.
 export RTHINK_RETRIEVAL_ONLY=${RTHINK_RETRIEVAL_ONLY:-0}
 
-# v3 process-shaping hyperparameters (only used by RTHINK_MODE=v3..v6 with DENSE_ONLY=0;
+# v3 process-shaping hyperparameters (used by RTHINK_MODE=v3..v6 with DENSE_ONLY=0;
 # inert under v7, kept so RTHINK_MODE=v6 still reproduces the old runs from this script)
+#
+# !! NOT inert under v8 !!  v8/orchestrator.py:99 reads RTHINK_W_GROUND with its OWN
+# default of 0.1, so the 0.40 below SILENTLY OVERRIDES it 4x. Every historical v8 run
+# therefore trained off-spec at w_ground=0.40 (r_select clipped at the cap, is_grounded
+# 0.32->0.75 while is_repeat rose). The value is left at 0.40 so those runs stay
+# reproducible -- but PIN IT EXPLICITLY on the sbatch line for any v8 arm so the run
+# record says which you meant:
+#   reproduce historical v8 (corpus as the only variable):  RTHINK_W_GROUND=0.40
+#   v8 as designed (never yet run):                         RTHINK_W_GROUND=0.1
+# v8 echoes the value it actually used at orchestrator.py:261 -- grep the log and check.
 export RTHINK_W_TOOL=${RTHINK_W_TOOL:-0.30}    # weight of tool_use
-export RTHINK_W_GROUND=${RTHINK_W_GROUND:-0.40} # weight of grounding
+export RTHINK_W_GROUND=${RTHINK_W_GROUND:-0.40} # weight of grounding (v3-v6 AND v8: see above)
 export RTHINK_W_SYNTH=${RTHINK_W_SYNTH:-0.30}   # weight of synthesis
 export RTHINK_W_REP=${RTHINK_W_REP:-0.50}       # weight of self_rep penalty
 
@@ -206,6 +241,42 @@ CONFIG_PATH="$PROJECT_DIR/examples/sglang_multiturn/config"
 # sbatch_run_dual_gpu_rthink.sh). Fall back to the shared path for standalone runs.
 TOOL_CONFIG="${TOOL_CONFIG:-$CONFIG_PATH/tool_config/search_tool_config.yaml}"
 echo "[tool-config] using $TOOL_CONFIG -> $(grep -m1 'retrieval_service_url' "$TOOL_CONFIG" 2>/dev/null)"
+
+# ---------------------------------------------------------------------------
+# Stage the reward assets off /work.
+#
+# The reward hot path reads embeddings.pt + name2id.json for every sample. Those
+# live under $PROJECT_DIR/data on Stockyard (Lustre), which TACC explicitly tells
+# you not to run job I/O against; on 2026-08-02 the client was evicted mid-run
+# and the trainer died with Errno 108. Copy the small catalogs to $SCRATCH once
+# at job start and point the reward code there via REC_DATA_ROOT.
+#
+# Only the per-sample catalogs are staged (~21 MB). The parquet train/val files
+# are read once by the dataloader and stay on /work.
+STAGE_DATA=${STAGE_DATA:-1}
+REC_DATA_ROOT="$PROJECT_DIR/data"
+if [[ "$STAGE_DATA" == "1" ]]; then
+  stage_root="${SCRATCH:-/scratch/11138/pranavbelligundu}/rec_data_stage"
+  staged_ok=1
+  for sub in amazon_data/CDs_and_Vinyl goodreads_data/Goodreads; do
+    src="$PROJECT_DIR/data/$sub"
+    [[ -d "$src" ]] || continue
+    mkdir -p "$stage_root/$sub" || { staged_ok=0; break; }
+    for f in embeddings.pt name2id.json; do
+      [[ -f "$src/$f" ]] || continue
+      if [[ ! -f "$stage_root/$sub/$f" || "$src/$f" -nt "$stage_root/$sub/$f" ]]; then
+        cp -f "$src/$f" "$stage_root/$sub/$f" || { staged_ok=0; break 2; }
+      fi
+    done
+  done
+  if [[ "$staged_ok" == "1" ]]; then
+    REC_DATA_ROOT="$stage_root"
+    echo "[stage-data] reward catalogs staged to $REC_DATA_ROOT"
+  else
+    echo "[stage-data] WARNING: staging failed; falling back to $REC_DATA_ROOT (on /work)" >&2
+  fi
+fi
+export REC_DATA_ROOT
 
 # Build resume overrides. If CHECKPOINT_PATH is set (e.g. via sbatch env), pin to
 # that specific step; otherwise fall back to resume_mode=auto which scans
@@ -256,6 +327,7 @@ singularity exec --nv \
     --env RTHINK_W_GROUND=$RTHINK_W_GROUND \
     --env RTHINK_W_SYNTH=$RTHINK_W_SYNTH \
     --env RTHINK_W_REP=$RTHINK_W_REP \
+    --env REC_DATA_ROOT=$REC_DATA_ROOT \
     --pwd $PROJECT_DIR \
     sglang_25.10-py3-tls-fixed.sif \
     bash -c \
@@ -298,7 +370,7 @@ singularity exec --nv \
         trainer.val_before_train=${VAL_BEFORE_TRAIN:-true} \
         trainer.n_gpus_per_node=1 \
         trainer.nnodes=1 \
-        trainer.save_freq=50 \
+        trainer.save_freq=${SAVE_FREQ:-25} \
         trainer.test_freq=50 \
         trainer.project_name=$WAND_PROJECT \
         trainer.experiment_name=$EXPERIMENT_NAME \

@@ -28,6 +28,27 @@
 #   TEST_SCRIPT=test_in_container_v7_n8.sh EVAL_REPEATS=1 sbatch sbatch_run_test_rthink.sh
 #   TEST_SCRIPT=test_in_container_baseline_n8.sh EVAL_REPEATS=3 sbatch sbatch_run_test_rthink.sh
 #
+# Decode at temperature 0 (greedy/argmax) instead of the historical 1.0 -- this is
+# how a trained policy is actually served, and it removes the decode-noise term
+# that is currently wider than every measured arm gap:
+#   DECODE_TEMPERATURE=0 TEST_SCRIPT=test_in_container_v8_n8.sh sbatch sbatch_run_test_rthink.sh
+#   sbatch sbatch_run_test_greedy_sweep.sh        # all arms x steps, greedy, one job
+#
+# Decode the TRAIN sample instead of the held-out set (DECODE_PARQUET). This is the
+# only way to observe the distribution GRPO actually computes gradients on: 54.8% of
+# TRAIN rollouts rank the GT #1 against 0.1% held-out (REWARD_REASONING_ANALYSIS
+# Part 14), so a rank/coverage/gradient statistic taken from test decodes says
+# nothing about training. EVAL_REPEATS=8 at temperature 1.0 reconstructs real n=8
+# GRPO groups; feed them to audits/advantage_mass.py. DECODE_TAG is MANDATORY here
+# (the entrypoint refuses the default tag) so train decodes never pool into the
+# held-out tables:
+#   DECODE_PARQUET=$PWD/data/amazon_data/train_diag_1000.parquet DECODE_TAG=traingrp \
+#   EVAL_REPEATS=8 DECODE_TEMPERATURE=1.0 CHECKPOINT_STEP=200 \
+#   EXPERIMENT_NAME=nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-n8 \
+#   sbatch sbatch_run_test_rthink.sh
+# Greedy decodes land in greedy<i>_<date>/ instead of decode<i>_<date>/, so they
+# never pool with the temperature-1.0 record.
+#
 # TEST_SCRIPT is the in-container entrypoint run on the eval node; it must live in
 # PROJECT_DIR and accept the eval knobs as environment variables.
 TEST_SCRIPT="${TEST_SCRIPT:-test_in_container_rthink.sh}"
@@ -63,7 +84,7 @@ if [[ ! -f "$PROJECT_DIR/$TEST_SCRIPT" ]]; then
 fi
 echo "[entrypoint] $TEST_SCRIPT"
 
-SHARED_CONFIG="$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml"
+SHARED_CONFIG="${TOOL_CONFIG_TEMPLATE:-$PROJECT_DIR/examples/sglang_multiturn/config/tool_config/search_tool_config.yaml}"
 # PER-JOB TOOL CONFIG -- do NOT sed the shared file. Every sbatch_run_*.sh used to
 # rewrite retrieval_service_url in the one shared yaml and restore a backup on exit,
 # so two concurrent jobs raced: the later sed repointed the earlier job's rollout at
@@ -97,7 +118,7 @@ start_retriever() {
   # "can't open file '.../vista/examples/...'". This matches how the training
   # sbatch launches it (sbatch_run_dual_gpu_rthink.sh:77).
   srun --nodelist="${retriever_host}" --nodes=1 --ntasks=1 --exclusive bash -lc \
-    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash retrieval_launch.sh" &
+    "source ~/.bashrc && conda activate retriever && cd ${PROJECT_DIR} && bash ${RETRIEVAL_SCRIPT:-retrieval_launch.sh}" &
   retrieval_pid=$!
 }
 
@@ -177,8 +198,18 @@ srun --nodelist="${test_host}" --nodes=1 --ntasks=1 --exclusive bash -lc \
   "source ~/.bashrc && \
    EXPERIMENT_NAME='${EXPERIMENT_NAME:-}' \
    CHECKPOINT_STEP='${CHECKPOINT_STEP:-}' \
+   CHECKPOINT_STEPS='${CHECKPOINT_STEPS:-}' \
    RTHINK_RUNS='${RTHINK_RUNS:-}' \
    EVAL_REPEATS='${EVAL_REPEATS:-}' \
+   ARMS='${ARMS:-}' \
+   STEPS='${STEPS:-}' \
+   PROBE_REPEATS='${PROBE_REPEATS:-}' \
+   DECODE_TEMPERATURE='${DECODE_TEMPERATURE:-}' \
+   DECODE_TOP_P='${DECODE_TOP_P:-}' \
+   DECODE_TOP_K='${DECODE_TOP_K:-}' \
+   DECODE_TAG='${DECODE_TAG:-}' \
+   DECODE_PARQUET='${DECODE_PARQUET:-}' \
+   PURGE_MERGED='${PURGE_MERGED:-}' \
    FORCE_MERGE='${FORCE_MERGE:-}' \
    GEN_BATCH_SIZE='${GEN_BATCH_SIZE:-}' \
    TOOL_CONFIG='${TOOL_CONFIG}' \
@@ -211,4 +242,3 @@ while true; do
 
   sleep 5
 done
-

@@ -21,12 +21,13 @@
 #   outputs/eval/<experiment>/<global_step_N>/greedy_<split>_<date>/
 #
 # Usage:
-#   bash test_in_container_traindiag.sh          # v5@300 + v6@300, train+test
-#   DIAG_RUNS="nq-...-rthink-v5:300" DIAG_SPLITS="train" bash test_in_container_traindiag.sh
+#   DIAG_STEP=400 bash test_in_container_traindiag.sh   # v7b + baseline-v2 @400, train+test
+#   DIAG_RUNS="nq-...-rthink-v7b-n8:350" DIAG_SPLITS="test" bash test_in_container_traindiag.sh
 #
 # Env vars:
-#   DIAG_RUNS        — space-separated "experiment:step" entries
-#                      (default: rthink-v5:300 rthink-v6:300)
+#   DIAG_STEP        — checkpoint step for the default v7b+baseline-v2 pair (default 200)
+#   DIAG_RUNS        — space-separated "experiment:step" entries; overrides DIAG_STEP
+#                      (default: rthink-v7b-n8:$DIAG_STEP baseline-v2-n8:$DIAG_STEP)
 #   DIAG_SPLITS      — subset of "train test" (default both)
 #   TRAIN_DIAG_PARQUET — train-sample parquet (default data/amazon_data/train_diag_1000.parquet)
 #   FORCE_MERGE, GEN_BATCH_SIZE, CUDA_VISIBLE_DEVICES — as in test_in_container_rthink.sh
@@ -57,7 +58,11 @@ TRAIN_DIAG_PARQUET=${TRAIN_DIAG_PARQUET:-"$PROJECT_DIR/data/amazon_data/train_di
 TEST_PARQUET_PATH=${TEST_PARQUET_PATH:-"$PROJECT_DIR/data/amazon_data/test.parquet"}
 DATE_TAG=$(date +%F)
 
-DIAG_RUNS=${DIAG_RUNS:-"nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v5:300 nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v6:300"}
+# Default targets the current A/B: v7b (fixed reward) vs baseline-v2 (reward_SPRec,
+# JSON-fix-matched). Pick the step for BOTH arms with DIAG_STEP (must exist as a
+# checkpoint), or override DIAG_RUNS entirely for arbitrary "experiment:step" sets.
+DIAG_STEP=${DIAG_STEP:-200}
+DIAG_RUNS=${DIAG_RUNS:-"nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-rthink-v7b-n8:${DIAG_STEP} nq-search-r1-grpo-qwen3-1.7b-sbatch-gpu-baseline-v2-n8:${DIAG_STEP}"}
 DIAG_SPLITS=${DIAG_SPLITS:-"train test"}
 
 SUMMARY_ENTRIES=()

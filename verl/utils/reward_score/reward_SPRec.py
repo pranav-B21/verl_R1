@@ -44,6 +44,66 @@ def read_json(json_file:str) -> dict:
     return json.load(f)
 
 
+# ---------------------------------------------------------------------------
+# Reward-asset cache.
+#
+# similarity_match() used to construct a SentenceTransformer and re-read
+# embeddings.pt (20 MB) + name2id.json on EVERY sample. At train_batch_size=56 x
+# rollout.n=8 that is 448 model constructions and 448 file opens per step, all
+# against /work (Lustre). On 2026-08-02 (job 883844, v8 resume) the Lustre client
+# was evicted mid-run and every subsequent syscall on the mount returned
+# ESHUTDOWN -- the traceback showed Errno 108 on both name2id.json and on the
+# repo directory itself, i.e. the whole mount was gone. The metadata-op storm
+# from this hot path is the most likely trigger, and it also cost real
+# wall-clock (~9.5 min/step).
+#
+# The caches below are pure memoisation: identical objects, identical numerics.
+# REC_DATA_ROOT redirects the reads to a node-local / $SCRATCH stage of the
+# dataset (see run_in_container_rthink.sh) so the hot path never touches Lustre.
+# It defaults to the historical "./data" so standalone callers are unaffected.
+# ---------------------------------------------------------------------------
+_DATA_ROOT = os.environ.get("REC_DATA_ROOT", "./data")
+
+_MODEL_CACHE = {}
+_CATALOG_CACHE = {}
+
+_CATALOG_SUBDIRS = {
+    "amazon": "amazon_data/CDs_and_Vinyl",
+    "goodreads": "goodreads_data/Goodreads",
+}
+
+
+def _get_model(name: str = 'sentence-transformers/paraphrase-MiniLM-L3-v2'):
+    """Construct the sentence-embedding model once per process."""
+    if name not in _MODEL_CACHE:
+        _MODEL_CACHE[name] = SentenceTransformer(name)
+    return _MODEL_CACHE[name]
+
+
+def _get_catalog(data_source: str, device):
+    """Return (embeddings_on_device, name2id) for `data_source`, loaded once.
+
+    The embedding matrix is cached already materialised on `device`, which also
+    removes a 20 MB host->device copy per sample.
+    """
+    for key, subdir in _CATALOG_SUBDIRS.items():
+        if key in data_source:
+            break
+    else:
+        raise ValueError(
+            f"reward_SPRec: no catalog for data_source={data_source!r} "
+            f"(expected one of {sorted(_CATALOG_SUBDIRS)})"
+        )
+
+    cache_key = (key, str(device))
+    if cache_key not in _CATALOG_CACHE:
+        base = os.path.join(_DATA_ROOT, subdir)
+        embeddings = torch.load(os.path.join(base, "embeddings.pt"))
+        name2id = read_json(os.path.join(base, "name2id.json"))
+        _CATALOG_CACHE[cache_key] = (torch.tensor(embeddings, device=device), name2id)
+    return _CATALOG_CACHE[cache_key]
+
+
 def similarity_match(solution_str, ground_truth, data_source, return_rank=False):
     """Tiered outcome reward.
 
@@ -75,16 +135,10 @@ def similarity_match(solution_str, ground_truth, data_source, return_rank=False)
         else:
             text = solution_str.split('\n', 1)[0]
 
-        # Identify your sentence-embedding model
-        model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L3-v2')
-        if "amazon" in data_source:
-            embeddings = torch.load(f"./data/amazon_data/CDs_and_Vinyl/embeddings.pt")
-            name2id = read_json(f"./data/amazon_data/CDs_and_Vinyl/name2id.json")
-        if "goodreads" in data_source:
-            embeddings = torch.load(f"./data/goodreads_data/Goodreads/embeddings.pt")
-            name2id = read_json(f"./data/goodreads_data/Goodreads/name2id.json")
+        # Identify your sentence-embedding model (cached; see _get_model)
+        model = _get_model()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        embeddings = torch.tensor(embeddings, device=device)
+        embeddings, name2id = _get_catalog(data_source, device)
 
         predict_embedding = torch.tensor(model.encode(text), device=device)
         if predict_embedding.ndim == 1:
